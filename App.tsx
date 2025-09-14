@@ -1,7 +1,7 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react';
-import { Persona, ParsedStory, RedmineIssue, ConversationTurn, ComplexityAnalysisResult } from './types';
-import { generateInitialQuestions, suggestNewStoryVersion, generateFollowUpQuestion, generateNewStory, refineSuggestedStory, generateTestScenarios, analyzeStoryComplexity } from './services/geminiService';
-import { personaDetails, UserIcon, BookOpenIcon, XIcon, MenuIcon, SparklesIcon, HomeIcon, ClipboardIcon, ClipboardCheckIcon, ClipboardListIcon, InformationCircleIcon, ScaleIcon } from './components/icons';
+import { Persona, ParsedStory, RedmineIssue, ConversationTurn, ComplexityAnalysisResult, SplitStory } from './types';
+import { generateInitialQuestions, suggestNewStoryVersion, generateFollowUpQuestion, generateNewStory, refineSuggestedStory, generateTestScenarios, analyzeStoryComplexity, generateStoriesFromTranscript } from './services/geminiService';
+import { personaDetails, UserIcon, BookOpenIcon, XIcon, MenuIcon, SparklesIcon, HomeIcon, ClipboardIcon, ClipboardCheckIcon, ClipboardListIcon, InformationCircleIcon, ScaleIcon, MicrophoneIcon } from './components/icons';
 
 const personaToKey = (p: Persona): string => {
     switch(p) {
@@ -65,6 +65,7 @@ const FeaturesModal = ({ onClose }: { onClose: () => void; }) => (
                 <ul className="list-disc list-inside space-y-1 mt-1">
                     <li><span className="font-semibold">Refinar História Existente:</span> Cole o JSON do Redmine ou o texto bruto de uma história para análise.</li>
                     <li><span className="font-semibold">Gerar Nova História:</span> Descreva requisitos para que a IA crie uma história do zero.</li>
+                    <li><span className="font-semibold">Analisar Transcrição de Reunião:</span> Cole a transcrição de uma reunião para que a IA gere propostas de histórias de usuário.</li>
                 </ul>
             </div>
             <div>
@@ -79,7 +80,7 @@ const FeaturesModal = ({ onClose }: { onClose: () => void; }) => (
                 <ul className="list-disc list-inside space-y-1 mt-1">
                     <li><span className="font-semibold">Configuração Flexível:</span> Selecione as personas (Dev, QA, Arquiteto, UX, DevOps) e arraste para definir a ordem das perguntas.</li>
                     <li><span className="font-semibold">Perguntas Contextuais:</span> A IA faz perguntas sequenciais com base nas personas e na conversa.</li>
-                    <li><span className="font-semibold">Análise de Complexidade:</span> Identifique histórias muito grandes (épicos) e receba sugestões para quebrá-las em partes menores e mais gerenciáveis.</li>
+                    <li><span className="font-semibold">Análise de Complexidade (Anti-Épico):</span> Identifique histórias muito grandes e receba sugestões para quebrá-las. Refine cada nova história individualmente.</li>
                 </ul>
             </div>
             <div>
@@ -100,7 +101,7 @@ const FeaturesModal = ({ onClose }: { onClose: () => void; }) => (
                 <ul className="list-disc list-inside space-y-1 mt-1">
                     <li><span className="font-semibold">Acesso Rápido:</span> Visualize a história original em um modal a qualquer momento.</li>
                     <li><span className="font-semibold">Copiar para a Área de Transferência:</span> Copie facilmente a história original, perguntas, sugestões e cenários de teste.</li>
-                     <li><span className="font-semibold">Recomeçar:</span> Reinicie o processo a qualquer momento com um clique.</li>
+                     <li><span className="font-semibold">Navegação Inteligente:</span> Reinicie o processo ou volte para a seleção de histórias quebradas com um botão que se adapta ao contexto.</li>
                 </ul>
             </div>
         </div>
@@ -109,9 +110,9 @@ const FeaturesModal = ({ onClose }: { onClose: () => void; }) => (
 );
 
 
-const HomeScreen = ({ onChoice, onShowFeatures }: { onChoice: (choice: 'refining' | 'generating') => void; onShowFeatures: () => void; }) => (
+const HomeScreen = ({ onChoice, onShowFeatures }: { onChoice: (choice: 'refining' | 'generating' | 'transcribing') => void; onShowFeatures: () => void; }) => (
     <div className="flex flex-col items-center justify-center min-h-screen p-4 -mt-20">
-        <div className="w-full max-w-2xl bg-gray-800 rounded-lg shadow-xl p-6 text-center relative">
+        <div className="w-full max-w-4xl bg-gray-800 rounded-lg shadow-xl p-6 text-center relative">
              <button 
                 onClick={onShowFeatures}
                 className="absolute top-4 right-4 text-gray-400 hover:text-purple-300 transition-colors"
@@ -120,10 +121,10 @@ const HomeScreen = ({ onChoice, onShowFeatures }: { onChoice: (choice: 'refining
                 <InformationCircleIcon className="w-6 h-6" />
             </button>
             <h2 className="text-xl font-semibold mb-4 text-gray-200">Como você quer começar?</h2>
-            <div className="flex flex-col md:flex-row gap-4 mt-6">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-6">
                 <button
                     onClick={() => onChoice('refining')}
-                    className="flex-1 bg-gray-700 hover:bg-gray-600 text-white font-bold py-4 px-6 rounded-md transition-transform transform hover:scale-105"
+                    className="flex flex-col items-center justify-center bg-gray-700 hover:bg-gray-600 text-white font-bold py-6 px-6 rounded-md transition-transform transform hover:scale-105"
                 >
                     <BookOpenIcon className="w-8 h-8 mx-auto mb-2 text-cyan-300" />
                     Refinar História Existente
@@ -131,11 +132,19 @@ const HomeScreen = ({ onChoice, onShowFeatures }: { onChoice: (choice: 'refining
                 </button>
                 <button
                     onClick={() => onChoice('generating')}
-                    className="flex-1 bg-gray-700 hover:bg-gray-600 text-white font-bold py-4 px-6 rounded-md transition-transform transform hover:scale-105"
+                    className="flex flex-col items-center justify-center bg-gray-700 hover:bg-gray-600 text-white font-bold py-6 px-6 rounded-md transition-transform transform hover:scale-105"
                 >
                     <SparklesIcon className="w-8 h-8 mx-auto mb-2 text-purple-300" />
                     Gerar Nova História
                      <p className="text-sm font-normal text-gray-400 mt-1">Descreva os requisitos para a IA criar uma história.</p>
+                </button>
+                <button
+                    onClick={() => onChoice('transcribing')}
+                    className="flex flex-col items-center justify-center bg-gray-700 hover:bg-gray-600 text-white font-bold py-6 px-6 rounded-md transition-transform transform hover:scale-105"
+                >
+                    <MicrophoneIcon className="w-8 h-8 mx-auto mb-2 text-green-300" />
+                    Analisar Transcrição
+                     <p className="text-sm font-normal text-gray-400 mt-1">Transforme uma reunião em propostas de histórias.</p>
                 </button>
             </div>
         </div>
@@ -242,6 +251,44 @@ const GenerateStoryInput = ({ onGenerate }: { onGenerate: (requirements: string,
                     className="mt-6 w-full bg-purple-600 hover:bg-purple-700 text-white font-bold py-2 px-4 rounded-md transition-transform transform hover:scale-105"
                 >
                     Gerar História
+                </button>
+            </div>
+        </div>
+    );
+};
+
+const TranscriptionInput = ({ onTranscriptSubmit }: { onTranscriptSubmit: (transcript: string) => void; }) => {
+    const [transcript, setTranscript] = useState('');
+    const [error, setError] = useState('');
+
+    const handleSubmit = () => {
+        if (!transcript.trim()) {
+            setError('Por favor, cole a transcrição da reunião.');
+            return;
+        }
+        setError('');
+        onTranscriptSubmit(transcript);
+    };
+
+    return (
+        <div className="flex flex-col items-center justify-center min-h-screen p-4 -mt-20">
+            <div className="w-full max-w-3xl bg-gray-800 rounded-lg shadow-xl p-6">
+                <h2 className="text-xl font-semibold mb-2 text-gray-200">Analisar Transcrição de Reunião</h2>
+                <p className="text-gray-400 mb-4 text-sm">Cole o texto bruto da transcrição e a IA irá identificar temas e sugerir histórias de usuário.</p>
+                
+                <textarea
+                    className="w-full h-80 p-3 bg-gray-900 border border-gray-700 rounded-md focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition text-gray-300 resize-y"
+                    value={transcript}
+                    onChange={(e) => setTranscript(e.target.value)}
+                    placeholder="Cole a transcrição completa aqui..."
+                />
+                {error && <p className="text-red-400 mt-2 text-sm">{error}</p>}
+                
+                <button
+                    onClick={handleSubmit}
+                    className="mt-6 w-full bg-purple-600 hover:bg-purple-700 text-white font-bold py-2 px-4 rounded-md transition-transform transform hover:scale-105"
+                >
+                    Analisar e Gerar Histórias
                 </button>
             </div>
         </div>
@@ -494,11 +541,11 @@ const ComplexityAnalysisModal = ({ result, onClose, onAcceptSplit }: { result: C
     </div>
 );
 
-const StorySelectionScreen = ({ stories, onSelectStory }: { stories: ParsedStory[], onSelectStory: (story: ParsedStory) => void }) => (
+const StorySelectionScreen = ({ stories, onSelectStory }: { stories: SplitStory[], onSelectStory: (story: ParsedStory) => void }) => (
     <div className="flex flex-col items-center justify-center min-h-screen p-4 -mt-20">
         <div className="w-full max-w-3xl bg-gray-800 rounded-lg shadow-xl p-6">
             <h2 className="text-xl font-semibold mb-2 text-gray-200">Selecione uma História para Refinar</h2>
-            <p className="text-gray-400 mb-6 text-sm">A história original foi quebrada. Escolha uma das novas histórias para iniciar uma sessão de planejamento individual.</p>
+            <p className="text-gray-400 mb-6 text-sm">A IA gerou as seguintes propostas. Escolha uma para iniciar uma sessão de planejamento individual.</p>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {stories.map((story, index) => (
                     <button 
@@ -517,7 +564,7 @@ const StorySelectionScreen = ({ stories, onSelectStory }: { stories: ParsedStory
 
 
 const App: React.FC = () => {
-    type AppState = 'home' | 'refining' | 'generating' | 'loading_generation' | 'reviewing' | 'configuring' | 'loading' | 'planning' | 'error' | 'analyzing_complexity' | 'story_selection';
+    type AppState = 'home' | 'refining' | 'generating' | 'transcribing' | 'loading_generation' | 'loading_transcription' | 'reviewing' | 'configuring' | 'loading' | 'planning' | 'error' | 'analyzing_complexity' | 'story_selection';
     const [appState, setAppState] = useState<AppState>('home');
 
     const [originalStory, setOriginalStory] = useState<ParsedStory | null>(null);
@@ -538,7 +585,7 @@ const App: React.FC = () => {
     const [isFeaturesModalOpen, setIsFeaturesModalOpen] = useState(false);
     const [isAnalyzingComplexity, setIsAnalyzingComplexity] = useState(false);
     const [complexityAnalysis, setComplexityAnalysis] = useState<ComplexityAnalysisResult | null>(null);
-    const [splitStories, setSplitStories] = useState<ParsedStory[]>([]);
+    const [splitStories, setSplitStories] = useState<SplitStory[]>([]);
     
     const conversationEndRef = useRef<HTMLDivElement>(null);
 
@@ -571,6 +618,24 @@ const App: React.FC = () => {
             setAppState('reviewing');
         } catch (err) {
             setError(err instanceof Error ? err.message : 'Falha ao gerar a história.');
+            setAppState('error');
+        }
+    }, []);
+
+     const handleTranscriptSubmit = useCallback(async (transcript: string) => {
+        setAppState('loading_transcription');
+        setError(null);
+        try {
+            const generatedStories = await generateStoriesFromTranscript(transcript);
+            if (generatedStories.length === 0) {
+                setError('A IA não conseguiu gerar histórias a partir da transcrição fornecida. Tente com um texto mais detalhado.');
+                setAppState('transcribing');
+                return;
+            }
+            setSplitStories(generatedStories);
+            setAppState('story_selection');
+        } catch (err) {
+            setError(err instanceof Error ? err.message : 'Falha ao analisar a transcrição.');
             setAppState('error');
         }
     }, []);
@@ -722,7 +787,7 @@ const App: React.FC = () => {
         setComplexityAnalysis(null);
     }, [complexityAnalysis]);
 
-    const handleSelectSplitStory = useCallback((story: ParsedStory) => {
+    const handleSelectSplitStory = useCallback((story: SplitStory) => {
         setConversation([]);
         setActivePersonas([]);
         setSuggestedStory(null);
@@ -770,7 +835,7 @@ const App: React.FC = () => {
         }
     };
 
-    const isRefiningSplitStory = appState === 'planning' && splitStories.length > 0;
+    const isRefiningSplitStory = (appState === 'planning' || appState === 'configuring') && splitStories.length > 0;
 
     const handleBackToSelection = () => {
          if (window.confirm("Tem certeza que deseja voltar para a seleção? O progresso nesta história será perdido.")) {
@@ -805,13 +870,17 @@ const App: React.FC = () => {
     const renderContent = () => {
         switch (appState) {
             case 'home':
-                return <HomeScreen onChoice={setAppState} onShowFeatures={() => setIsFeaturesModalOpen(true)} />;
+                return <HomeScreen onChoice={setAppState as (choice: 'refining' | 'generating' | 'transcribing') => void} onShowFeatures={() => setIsFeaturesModalOpen(true)} />;
             case 'refining':
                 return <StoryInput onStorySubmit={handleStorySubmit} />;
             case 'generating':
                 return <GenerateStoryInput onGenerate={handleGenerateStory} />;
+            case 'transcribing':
+                return <TranscriptionInput onTranscriptSubmit={handleTranscriptSubmit} />;
             case 'loading_generation':
                 return <div className="h-screen -mt-20"><Loader text="A IA está gerando sua história..." /></div>;
+            case 'loading_transcription':
+                return <div className="h-screen -mt-20"><Loader text="A IA está analisando a transcrição e gerando histórias..." /></div>;
             case 'reviewing':
                 return originalStory && <ReviewGeneratedStory story={originalStory} onConfirm={handleReviewConfirm} onEdit={setOriginalStory} />;
             case 'configuring':

@@ -1,5 +1,5 @@
 import { GoogleGenAI, GenerateContentResponse, Type, Part } from "@google/genai";
-import { Persona, ParsedStory, ConversationTurn, InitialQuestions, ComplexityAnalysisResult } from '../types';
+import { Persona, ParsedStory, ConversationTurn, InitialQuestions, ComplexityAnalysisResult, SplitStory } from '../types';
 
 if (!process.env.API_KEY) {
     console.error("API_KEY environment variable not set.");
@@ -344,5 +344,56 @@ export const analyzeStoryComplexity = async (story: ParsedStory): Promise<Comple
     } catch (error) {
         console.error("Error analyzing story complexity:", error);
         throw new Error("Falha ao analisar a complexidade da história.");
+    }
+};
+
+export const generateStoriesFromTranscript = async (transcript: string): Promise<SplitStory[]> => {
+    try {
+        const prompt = `
+        Você é um Product Owner Sênior, especialista em transformar discussões de reuniões em artefatos de backlog acionáveis.
+        Sua tarefa é analisar a transcrição de uma reunião, identificar os principais temas e requisitos, e gerar uma lista de histórias de usuário.
+
+        **Transcrição da Reunião:**
+        ---
+        ${transcript}
+        ---
+
+        **Instruções:**
+        1.  Leia atentamente a transcrição para compreender os problemas, necessidades e decisões discutidas.
+        2.  Agrupe os pontos relacionados em temas coesos.
+        3.  Para cada tema, crie uma história de usuário bem estruturada. Cada história deve ter um título claro e uma descrição no formato "Como..., Eu quero..., Para que..." com critérios de aceitação "Dado..., Quando..., Então...".
+        4.  Se a transcrição for muito vaga para um tema, crie uma história de "Spike" (pesquisa) para investigar mais a fundo.
+        5.  Foque em gerar de 2 a 5 histórias de usuário principais que capturem a essência da discussão.
+
+        Retorne um array de objetos JSON, em português do Brasil, onde cada objeto representa uma história e contém as chaves "title" e "description".
+        `;
+        
+        const responseSchema = {
+            type: Type.ARRAY,
+            items: {
+                type: Type.OBJECT,
+                properties: {
+                    title: { type: Type.STRING },
+                    description: { type: Type.STRING }
+                },
+                required: ["title", "description"]
+            }
+        };
+
+        const response = await ai.models.generateContent({
+            model: model,
+            contents: prompt,
+            config: {
+                responseMimeType: "application/json",
+                responseSchema,
+            },
+        });
+
+        const jsonString = response.text;
+        return JSON.parse(jsonString) as SplitStory[];
+
+    } catch (error) {
+        console.error("Error generating stories from transcript:", error);
+        throw new Error("Falha ao analisar a transcrição e gerar histórias.");
     }
 };
