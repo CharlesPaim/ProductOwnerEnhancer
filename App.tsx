@@ -1,7 +1,7 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react';
-import { Persona, ParsedStory, RedmineIssue, ConversationTurn } from './types';
-import { generateInitialQuestions, suggestNewStoryVersion, generateFollowUpQuestion, generateNewStory, refineSuggestedStory, generateTestScenarios } from './services/geminiService';
-import { personaDetails, UserIcon, BookOpenIcon, XIcon, MenuIcon, SparklesIcon, HomeIcon, ClipboardIcon, ClipboardCheckIcon, ClipboardListIcon, InformationCircleIcon } from './components/icons';
+import { Persona, ParsedStory, RedmineIssue, ConversationTurn, ComplexityAnalysisResult } from './types';
+import { generateInitialQuestions, suggestNewStoryVersion, generateFollowUpQuestion, generateNewStory, refineSuggestedStory, generateTestScenarios, analyzeStoryComplexity } from './services/geminiService';
+import { personaDetails, UserIcon, BookOpenIcon, XIcon, MenuIcon, SparklesIcon, HomeIcon, ClipboardIcon, ClipboardCheckIcon, ClipboardListIcon, InformationCircleIcon, ScaleIcon } from './components/icons';
 
 const personaToKey = (p: Persona): string => {
     switch(p) {
@@ -14,7 +14,7 @@ const personaToKey = (p: Persona): string => {
     }
 };
 
-const Header = ({ onRestart, showRestart }: { onRestart: () => void; showRestart: boolean; }) => (
+const Header = ({ onRestart, showRestart, text }: { onRestart: () => void; showRestart: boolean; text: string; }) => (
     <header className="relative bg-gray-900/80 backdrop-blur-sm p-4 border-b border-gray-700 sticky top-0 z-20 flex items-center justify-center h-[85px]">
         <div className="text-center">
             <h1 className="text-2xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-purple-400 to-cyan-400">
@@ -27,10 +27,10 @@ const Header = ({ onRestart, showRestart }: { onRestart: () => void; showRestart
                 <button 
                     onClick={onRestart}
                     className="flex items-center gap-2 text-sm text-gray-300 hover:text-purple-300 transition-colors py-1 px-3 rounded-md hover:bg-gray-700/50"
-                    title="Recomeçar"
+                    title={text}
                 >
                     <HomeIcon className="w-5 h-5" />
-                    <span>Recomeçar</span>
+                    <span>{text}</span>
                 </button>
             )}
         </div>
@@ -79,6 +79,7 @@ const FeaturesModal = ({ onClose }: { onClose: () => void; }) => (
                 <ul className="list-disc list-inside space-y-1 mt-1">
                     <li><span className="font-semibold">Configuração Flexível:</span> Selecione as personas (Dev, QA, Arquiteto, UX, DevOps) e arraste para definir a ordem das perguntas.</li>
                     <li><span className="font-semibold">Perguntas Contextuais:</span> A IA faz perguntas sequenciais com base nas personas e na conversa.</li>
+                    <li><span className="font-semibold">Análise de Complexidade:</span> Identifique histórias muito grandes (épicos) e receba sugestões para quebrá-las em partes menores e mais gerenciáveis.</li>
                 </ul>
             </div>
             <div>
@@ -453,8 +454,70 @@ const OriginalStoryModal = ({ story, onClose }: { story: ParsedStory; onClose: (
     );
 };
 
+const ComplexityAnalysisModal = ({ result, onClose, onAcceptSplit }: { result: ComplexityAnalysisResult; onClose: () => void; onAcceptSplit: () => void; }) => (
+    <div 
+      className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4 transition-opacity duration-300"
+      onClick={onClose}
+    >
+      <div 
+        className="bg-gray-800 rounded-lg shadow-xl max-w-3xl w-full p-6 border border-gray-700 relative animate-fade-in-up"
+        onClick={e => e.stopPropagation()} 
+      >
+        <div className="flex items-center gap-3 mb-4">
+            <ScaleIcon className="w-8 h-8 text-cyan-300"/>
+            <h3 className="text-xl font-semibold text-purple-300">Análise de Complexidade</h3>
+        </div>
+         <div className="max-h-[70vh] overflow-y-auto pr-4 space-y-4 text-gray-300">
+            <p><strong>Classificação:</strong> <span className={`font-bold ${result.complexity === 'Alta' ? 'text-red-400' : result.complexity === 'Média' ? 'text-yellow-400' : 'text-green-400'}`}>{result.complexity}</span></p>
+            <p><strong>Justificativa:</strong> {result.justification}</p>
+            {result.complexity === 'Alta' && result.suggestedStories && (
+                <div>
+                    <h4 className="font-bold text-cyan-300 mt-4 mb-2">Sugestão de Quebra em Histórias Menores:</h4>
+                    <div className="space-y-3">
+                        {result.suggestedStories.map((story, index) => (
+                            <details key={index} className="bg-gray-900/50 p-3 rounded-md">
+                                <summary className="font-semibold cursor-pointer">{story.title}</summary>
+                                <pre className="text-sm whitespace-pre-wrap font-sans mt-2 pl-4 border-l-2 border-gray-600">{story.description}</pre>
+                            </details>
+                        ))}
+                    </div>
+                </div>
+            )}
+        </div>
+        <div className="flex justify-end gap-3 mt-6">
+            <button onClick={onClose} className="bg-gray-600 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded transition">Fechar</button>
+            {result.complexity === 'Alta' && (
+                <button onClick={onAcceptSplit} className="bg-purple-600 hover:bg-purple-700 text-white font-bold py-2 px-4 rounded transition">Aceitar e Quebrar História</button>
+            )}
+        </div>
+      </div>
+    </div>
+);
+
+const StorySelectionScreen = ({ stories, onSelectStory }: { stories: ParsedStory[], onSelectStory: (story: ParsedStory) => void }) => (
+    <div className="flex flex-col items-center justify-center min-h-screen p-4 -mt-20">
+        <div className="w-full max-w-3xl bg-gray-800 rounded-lg shadow-xl p-6">
+            <h2 className="text-xl font-semibold mb-2 text-gray-200">Selecione uma História para Refinar</h2>
+            <p className="text-gray-400 mb-6 text-sm">A história original foi quebrada. Escolha uma das novas histórias para iniciar uma sessão de planejamento individual.</p>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {stories.map((story, index) => (
+                    <button 
+                        key={index} 
+                        onClick={() => onSelectStory(story)}
+                        className="bg-gray-700 hover:bg-gray-600 text-left p-4 rounded-md transition-transform transform hover:scale-105"
+                    >
+                        <h3 className="font-bold text-purple-300">{story.title}</h3>
+                        <p className="text-sm text-gray-400 mt-2 line-clamp-3">{story.description}</p>
+                    </button>
+                ))}
+            </div>
+        </div>
+    </div>
+);
+
+
 const App: React.FC = () => {
-    type AppState = 'home' | 'refining' | 'generating' | 'loading_generation' | 'reviewing' | 'configuring' | 'loading' | 'planning' | 'error';
+    type AppState = 'home' | 'refining' | 'generating' | 'loading_generation' | 'reviewing' | 'configuring' | 'loading' | 'planning' | 'error' | 'analyzing_complexity' | 'story_selection';
     const [appState, setAppState] = useState<AppState>('home');
 
     const [originalStory, setOriginalStory] = useState<ParsedStory | null>(null);
@@ -473,7 +536,9 @@ const App: React.FC = () => {
     const [testScenarios, setTestScenarios] = useState<string | null>(null);
     const [isGeneratingScenarios, setIsGeneratingScenarios] = useState(false);
     const [isFeaturesModalOpen, setIsFeaturesModalOpen] = useState(false);
-
+    const [isAnalyzingComplexity, setIsAnalyzingComplexity] = useState(false);
+    const [complexityAnalysis, setComplexityAnalysis] = useState<ComplexityAnalysisResult | null>(null);
+    const [splitStories, setSplitStories] = useState<ParsedStory[]>([]);
     
     const conversationEndRef = useRef<HTMLDivElement>(null);
 
@@ -538,9 +603,14 @@ const App: React.FC = () => {
     }, [originalStory]);
 
     const handleCancelConfiguration = useCallback(() => {
-        setOriginalStory(null);
-        setAppState('home');
-    }, []);
+        if (splitStories.length > 0) {
+            setAppState('story_selection');
+            setOriginalStory(null);
+        } else {
+            setOriginalStory(null);
+            setAppState('home');
+        }
+    }, [splitStories]);
 
     const submitAnswer = useCallback(async (answer: string) => {
         if (!originalStory || activePersonas.length === 0) return;
@@ -628,8 +698,53 @@ const App: React.FC = () => {
         }
     }, [originalStory, suggestedStory]);
 
+    const handleAnalyzeComplexity = useCallback(async () => {
+        if (!originalStory) return;
+        setIsAnalyzingComplexity(true);
+        setComplexityAnalysis(null);
+        setError(null);
+        try {
+            const storyToAnalyze = suggestedStory ? { title: originalStory.title, description: suggestedStory } : originalStory;
+            const result = await analyzeStoryComplexity(storyToAnalyze);
+            setComplexityAnalysis(result);
+        } catch (err) {
+            setError(err instanceof Error ? err.message : 'Falha ao analisar a complexidade.');
+        } finally {
+            setIsAnalyzingComplexity(false);
+        }
+    }, [originalStory, suggestedStory]);
+
+    const handleAcceptSplit = useCallback(() => {
+        if (complexityAnalysis?.suggestedStories) {
+            setSplitStories(complexityAnalysis.suggestedStories);
+            setAppState('story_selection');
+        }
+        setComplexityAnalysis(null);
+    }, [complexityAnalysis]);
+
+    const handleSelectSplitStory = useCallback((story: ParsedStory) => {
+        setConversation([]);
+        setActivePersonas([]);
+        setSuggestedStory(null);
+        setError(null);
+        setCurrentAnswer('');
+        setIsAnswering(false);
+        setIsSuggesting(false);
+        setIsRefining(false);
+        setRefinementPrompt('');
+        setTestScenarios(null);
+        setIsGeneratingScenarios(false);
+        setCopiedTurnId(null);
+        setComplexityAnalysis(null);
+        setIsAnalyzingComplexity(false);
+        
+        setOriginalStory(story);
+        setAppState('configuring');
+    }, []);
+
 
     const resetApp = () => {
+        setSplitStories([]);
         setAppState('home');
         setOriginalStory(null);
         setConversation([]);
@@ -645,6 +760,8 @@ const App: React.FC = () => {
         setIsGeneratingScenarios(false);
         setCopiedTurnId(null);
         setIsFeaturesModalOpen(false);
+        setComplexityAnalysis(null);
+        setIsAnalyzingComplexity(false);
     };
 
     const handleRestart = () => {
@@ -652,13 +769,31 @@ const App: React.FC = () => {
             resetApp();
         }
     };
+
+    const isRefiningSplitStory = appState === 'planning' && splitStories.length > 0;
+
+    const handleBackToSelection = () => {
+         if (window.confirm("Tem certeza que deseja voltar para a seleção? O progresso nesta história será perdido.")) {
+            setConversation([]);
+            setSuggestedStory(null);
+            setError(null);
+            setCurrentAnswer('');
+            setTestScenarios(null);
+            setOriginalStory(null); 
+            
+            setAppState('story_selection');
+        }
+    }
+
+    const headerAction = isRefiningSplitStory ? handleBackToSelection : handleRestart;
+    const headerText = isRefiningSplitStory ? 'Voltar para Seleção' : 'Recomeçar';
     
     if (appState === 'error') {
         return (
             <div className="flex flex-col items-center justify-center min-h-screen p-4 text-center">
                 <h2 className="text-2xl text-red-400 mb-4">Ocorreu um Erro</h2>
                 <p className="text-gray-400 mb-6">{error}</p>
-                <button onClick={resetApp} className="bg-purple-600 hover:bg-purple-700 text-white font-bold py-2 px-4 rounded">
+                <button onClick={() => resetApp()} className="bg-purple-600 hover:bg-purple-700 text-white font-bold py-2 px-4 rounded">
                     Começar de Novo
                 </button>
             </div>
@@ -683,6 +818,8 @@ const App: React.FC = () => {
                 return <PersonaConfiguration onStart={handleStartPlanning} onCancel={handleCancelConfiguration} />;
             case 'loading':
                 return <div className="h-screen -mt-20"><Loader text="As personas de IA estão analisando sua história..." /></div>;
+             case 'story_selection':
+                return <StorySelectionScreen stories={splitStories} onSelectStory={handleSelectSplitStory} />;
             case 'planning':
                 return originalStory && (
                     <main className="p-4 lg:p-8 grid grid-cols-1 lg:grid-cols-12 gap-8 max-w-screen-2xl mx-auto">
@@ -690,15 +827,27 @@ const App: React.FC = () => {
                             <div className="flex-grow bg-gray-800/50 rounded-lg p-4 lg:p-6 border border-gray-700 mb-6">
                                 <div className="flex justify-between items-center mb-4">
                                     <h3 className="text-lg font-semibold text-cyan-300">Sessão de Planejamento</h3>
-                                    <button
-                                        onClick={() => setIsOriginalStoryModalOpen(true)}
-                                        className="flex items-center gap-2 text-sm text-gray-300 hover:text-purple-300 transition-colors py-1 px-3 rounded-md hover:bg-gray-700/50"
-                                        title="Visualizar a história original"
-                                    >
-                                        <BookOpenIcon className="w-5 h-5" />
-                                        <span>Ver História Original</span>
-                                    </button>
+                                    <div className="flex items-center gap-2">
+                                        <button
+                                            onClick={handleAnalyzeComplexity}
+                                            disabled={isAnalyzingComplexity}
+                                            className="flex items-center gap-2 text-sm text-gray-300 hover:text-purple-300 transition-colors py-1 px-3 rounded-md hover:bg-gray-700/50 disabled:cursor-not-allowed"
+                                            title="Analisar complexidade da história"
+                                        >
+                                            <ScaleIcon className="w-5 h-5" />
+                                            <span>Analisar Complexidade</span>
+                                        </button>
+                                        <button
+                                            onClick={() => setIsOriginalStoryModalOpen(true)}
+                                            className="flex items-center gap-2 text-sm text-gray-300 hover:text-purple-300 transition-colors py-1 px-3 rounded-md hover:bg-gray-700/50"
+                                            title="Visualizar a história original"
+                                        >
+                                            <BookOpenIcon className="w-5 h-5" />
+                                            <span>Ver História Original</span>
+                                        </button>
+                                    </div>
                                 </div>
+                                {isAnalyzingComplexity && <Loader text="Analisando complexidade..." />}
                                 <div className="space-y-6 max-h-[50vh] overflow-y-auto pr-2">
                                     {conversation.map(turn => (
                                         <React.Fragment key={turn.id}>
@@ -830,7 +979,7 @@ const App: React.FC = () => {
 
     return (
         <div className="bg-gray-900 text-gray-200 min-h-screen font-sans">
-            <Header onRestart={handleRestart} showRestart={appState !== 'home'}/>
+            <Header onRestart={headerAction} showRestart={appState !== 'home'} text={headerText} />
             {renderContent()}
             {isOriginalStoryModalOpen && originalStory && (
                 <OriginalStoryModal 
@@ -839,6 +988,13 @@ const App: React.FC = () => {
                 />
             )}
              {isFeaturesModalOpen && <FeaturesModal onClose={() => setIsFeaturesModalOpen(false)} />}
+             {complexityAnalysis && (
+                <ComplexityAnalysisModal 
+                    result={complexityAnalysis} 
+                    onClose={() => setComplexityAnalysis(null)}
+                    onAcceptSplit={handleAcceptSplit}
+                />
+             )}
         </div>
     );
 };

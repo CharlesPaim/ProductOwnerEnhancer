@@ -28,3 +28,14 @@ export interface RedmineIssue {
 }
 
 export type InitialQuestions = Record<string, string>;
+
+export interface SplitStory {
+  title: string;
+  description: string;
+}
+
+export interface ComplexityAnalysisResult {
+  complexity: 'Baixa' | 'Média' | 'Alta';
+  justification: string;
+  suggestedStories?: SplitStory[];
+}

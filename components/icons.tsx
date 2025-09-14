@@ -100,6 +100,12 @@ export const InformationCircleIcon = ({ className }: { className?: string }) => 
     </svg>
 );
 
+export const ScaleIcon = ({ className }: { className?: string }) => (
+    <svg xmlns="http://www.w3.org/2000/svg" className={className} fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M12 3v17.25m0 0c-1.472 0-2.882.265-4.185.75M12 20.25c1.472 0 2.882.265 4.185.75M18.75 4.97A48.416 48.416 0 0012 4.5c-2.291 0-4.545.16-6.75.47m13.5 0c1.01.143 2.01.317 3 .52m-3-.52l2.62 10.726c.122.499-.106 1.028-.589 1.202a5.988 5.988 0 01-2.153.344c-.498 0-.985-.07-1.457-.211L12 14.25M3 4.97a48.337 48.337 0 016.75-.47m-6.75.47c-1.01.143-2.01.317-3 .52m3-.52L3.38 15.726c-.122.499.106 1.028.589 1.202a5.989 5.989 0 002.153.344c.498 0 .985-.07 1.457-.211L12 14.25m-8.62-9.28a48.334 48.334 0 000 13.5" />
+    </svg>
+);
+
 
 export const personaDetails: Record<Persona, { icon: React.FC<{className?: string}>; color: string; name: string }> = {
     [Persona.Dev]: { icon: CodeIcon, color: 'border-cyan-500', name: Persona.Dev },

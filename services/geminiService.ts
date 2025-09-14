@@ -1,5 +1,5 @@
 import { GoogleGenAI, GenerateContentResponse, Type, Part } from "@google/genai";
-import { Persona, ParsedStory, ConversationTurn, InitialQuestions } from '../types';
+import { Persona, ParsedStory, ConversationTurn, InitialQuestions, ComplexityAnalysisResult } from '../types';
 
 if (!process.env.API_KEY) {
     console.error("API_KEY environment variable not set.");
@@ -285,5 +285,64 @@ export const generateTestScenarios = async (storyDescription: string): Promise<s
     } catch (error) {
         console.error("Error generating test scenarios:", error);
         throw new Error("Falha ao gerar os cenários de teste.");
+    }
+};
+
+export const analyzeStoryComplexity = async (story: ParsedStory): Promise<ComplexityAnalysisResult> => {
+    try {
+        const prompt = `
+        Você é um Agile Coach Sênior, especialista em facilitar sessões de planning e garantir que as histórias de usuário sejam bem fatiadas (INVEST).
+        Sua tarefa é analisar a complexidade da seguinte história de usuário.
+
+        **História de Usuário para Análise:**
+        ---
+        Título: ${story.title}
+        Descrição:
+        ${story.description}
+        ---
+
+        **Instruções:**
+        1.  Avalie a complexidade da história com base em seu escopo, número de critérios de aceitação e regras de negócio. Classifique-a como 'Baixa', 'Média' ou 'Alta'.
+        2.  Forneça uma justificativa concisa para sua classificação.
+        3.  **Se e somente se a complexidade for 'Alta'**, sugira como a história pode ser quebrada em 2 ou 3 histórias menores e mais focadas. Para cada história sugerida, forneça um título e uma descrição completa, mantendo o formato original.
+
+        Retorne um objeto JSON válido, em português do Brasil.
+        `;
+
+        const responseSchema = {
+            type: Type.OBJECT,
+            properties: {
+                complexity: { type: Type.STRING, enum: ['Baixa', 'Média', 'Alta'] },
+                justification: { type: Type.STRING },
+                suggestedStories: {
+                    type: Type.ARRAY,
+                    items: {
+                        type: Type.OBJECT,
+                        properties: {
+                            title: { type: Type.STRING },
+                            description: { type: Type.STRING }
+                        },
+                        required: ["title", "description"]
+                    }
+                }
+            },
+            required: ["complexity", "justification"]
+        };
+
+        const response = await ai.models.generateContent({
+            model: model,
+            contents: prompt,
+            config: {
+                responseMimeType: "application/json",
+                responseSchema,
+            },
+        });
+
+        const jsonString = response.text;
+        return JSON.parse(jsonString) as ComplexityAnalysisResult;
+
+    } catch (error) {
+        console.error("Error analyzing story complexity:", error);
+        throw new Error("Falha ao analisar a complexidade da história.");
     }
 };
