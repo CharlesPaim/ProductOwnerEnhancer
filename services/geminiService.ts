@@ -1,5 +1,5 @@
 import { GoogleGenAI, GenerateContentResponse, Type, Part } from "@google/genai";
-import { Persona, ParsedStory, ConversationTurn, InitialQuestions, ComplexityAnalysisResult, SplitStory } from '../types';
+import { Persona, ParsedStory, ConversationTurn, InitialQuestions, ComplexityAnalysisResult, SplitStory, BddFeatureSuggestion } from '../types';
 
 if (!process.env.API_KEY) {
     console.error("API_KEY environment variable not set.");
@@ -641,5 +641,90 @@ export const generateStepDefinitions = async (featureFileContent: string, techno
     } catch (error) {
         console.error("Error generating step definitions:", error);
         throw new Error("Falha ao gerar os esqueletos de steps.");
+    }
+};
+
+export const analyzeAndBreakdownDocument = async (document: string): Promise<BddFeatureSuggestion[]> => {
+    try {
+        const prompt = `
+        Você é um Arquiteto de Produto Sênior, especialista em BDD e em fatiar épicos complexos em features gerenciáveis.
+        Sua tarefa é analisar um documento de requisitos tradicional e propor uma quebra em features menores e coesas.
+
+        **Documento de Requisitos para Análise:**
+        ---
+        ${document}
+        ---
+
+        **Instruções:**
+        1.  Leia o documento para identificar as principais funcionalidades ou épicos contidos nele.
+        2.  Para cada funcionalidade identificada, crie um título claro e um resumo conciso (1-2 frases) descrevendo seu escopo.
+        3.  Evite criar features muito granulares. Agrupe requisitos relacionados. O objetivo é ter de 2 a 5 features principais.
+        4.  Se o documento for sobre uma única funcionalidade pequena, retorne apenas um item na lista.
+
+        Retorne um array de objetos JSON, em português do Brasil. Cada objeto deve ter as chaves "title" e "summary".
+        `;
+
+        const responseSchema = {
+            type: Type.ARRAY,
+            items: {
+                type: Type.OBJECT,
+                properties: {
+                    title: { type: Type.STRING },
+                    summary: { type: Type.STRING }
+                },
+                required: ["title", "summary"]
+            }
+        };
+
+        const response = await ai.models.generateContent({
+            model: model,
+            contents: prompt,
+            config: {
+                responseMimeType: "application/json",
+                responseSchema,
+            },
+        });
+
+        const jsonString = response.text;
+        return JSON.parse(jsonString) as BddFeatureSuggestion[];
+
+    } catch (error) {
+        console.error("Error analyzing and breaking down document:", error);
+        throw new Error("Falha ao analisar e quebrar o documento em features.");
+    }
+};
+
+
+export const convertDocumentToBdd = async (document: string, featureTitle: string): Promise<string> => {
+    try {
+        const prompt = `
+        Você é um Analista de Negócios Sênior, especialista em BDD.
+        Sua tarefa é analisar o documento de requisitos fornecido, mas focar **especificamente** nos detalhes pertencentes à funcionalidade "${featureTitle}" para convertê-la em um arquivo .feature.
+
+        **Documento Completo de Requisitos (para contexto):**
+        ---
+        ${document}
+        ---
+
+        **Funcionalidade Focada para Conversão:** "${featureTitle}"
+
+        **Instruções:**
+        1.  Escreva uma declaração 'Funcionalidade:' clara e concisa para a feature focada.
+        2.  Extraia as regras de negócio e os requisitos chave **apenas** da funcionalidade "${featureTitle}".
+        3.  Crie múltiplos cenários de teste em Gherkin ('Cenário:', 'Dado', 'Quando', 'Então') que cubram os principais fluxos, casos de borda e cenários de erro para esta funcionalidade específica.
+        4.  O resultado deve ser um único bloco de texto contendo o arquivo .feature completo e bem formatado.
+
+        Produza apenas o conteúdo do arquivo .feature, em português do Brasil. Não inclua comentários extras ou explicações.
+        `;
+
+        const response = await ai.models.generateContent({
+            model: model,
+            contents: prompt,
+        });
+
+        return response.text.trim();
+    } catch (error) {
+        console.error("Error converting document to BDD:", error);
+        throw new Error("Falha ao converter o documento para BDD.");
     }
 };

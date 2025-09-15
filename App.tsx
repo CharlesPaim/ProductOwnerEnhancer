@@ -1,7 +1,7 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react';
-import { Persona, ParsedStory, RedmineIssue, ConversationTurn, ComplexityAnalysisResult, SplitStory } from './types';
-import { generateInitialQuestions, suggestNewStoryVersion, generateFollowUpQuestion, generateNewStory, refineSuggestedStory, generateTestScenarios, analyzeStoryComplexity, generateStoriesFromTranscript, generatePrototype, generateBddScenarios, generateBddFollowUpQuestion, generateGherkinFromConversation, generatePoChecklist, generateStepDefinitions } from './services/geminiService';
-import { personaDetails, UserIcon, BookOpenIcon, XIcon, MenuIcon, SparklesIcon, HomeIcon, ClipboardIcon, ClipboardCheckIcon, ClipboardListIcon, InformationCircleIcon, ScaleIcon, MicrophoneIcon, TemplateIcon, ViewBoardsIcon, DocumentTextIcon, CheckCircleIcon, PencilIcon, TrashIcon, CodeIcon } from './components/icons';
+import { Persona, ParsedStory, RedmineIssue, ConversationTurn, ComplexityAnalysisResult, SplitStory, BddFeatureSuggestion } from './types';
+import { generateInitialQuestions, suggestNewStoryVersion, generateFollowUpQuestion, generateNewStory, refineSuggestedStory, generateTestScenarios, analyzeStoryComplexity, generateStoriesFromTranscript, generatePrototype, generateBddScenarios, generateBddFollowUpQuestion, generateGherkinFromConversation, generatePoChecklist, generateStepDefinitions, convertDocumentToBdd, analyzeAndBreakdownDocument } from './services/geminiService';
+import { personaDetails, UserIcon, BookOpenIcon, XIcon, MenuIcon, SparklesIcon, HomeIcon, ClipboardIcon, ClipboardCheckIcon, ClipboardListIcon, InformationCircleIcon, ScaleIcon, MicrophoneIcon, TemplateIcon, ViewBoardsIcon, DocumentTextIcon, CheckCircleIcon, PencilIcon, TrashIcon, CodeIcon, SwitchHorizontalIcon } from './components/icons';
 
 type BddScenario = {
     id: number;
@@ -9,6 +9,12 @@ type BddScenario = {
     gherkin: string | null;
     completed: boolean;
 };
+
+type ConfirmationAction = {
+    title: string;
+    message: string;
+    onConfirm: () => void;
+} | null;
 
 const personaToKey = (p: Persona): string => {
     switch(p) {
@@ -73,7 +79,8 @@ const FeaturesModal = ({ onClose }: { onClose: () => void; }) => (
                     <li><span className="font-semibold">Refinar História Existente:</span> Cole o JSON do Redmine ou o texto bruto de uma história para análise.</li>
                     <li><span className="font-semibold">Gerar Nova História:</span> Descreva requisitos para que a IA crie uma história do zero.</li>
                     <li><span className="font-semibold">Analisar Transcrição de Reunião:</span> Cole a transcrição de uma reunião para que a IA gere propostas de histórias de usuário.</li>
-                     <li><span className="font-semibold">Criar Feature BDD:</span> Guie a IA para criar um arquivo .feature completo a partir de uma descrição de alto nível.</li>
+                    <li><span className="font-semibold">Criar Feature BDD:</span> Guie a IA para criar um arquivo .feature completo a partir de uma descrição de alto nível.</li>
+                    <li><span className="font-semibold">Converter Documento para BDD:</span> Cole um documento de requisitos tradicional para que a IA o analise, sugira uma quebra em features menores e o transforme em um arquivo .feature.</li>
                 </ul>
             </div>
             <div>
@@ -108,7 +115,7 @@ const FeaturesModal = ({ onClose }: { onClose: () => void; }) => (
             <div>
                 <h4 className="font-bold text-cyan-300">Utilidades</h4>
                 <ul className="list-disc list-inside space-y-1 mt-1">
-                    <li><span className="font-semibold">Acesso Rápido:</span> Visualize a história original em um modal a qualquer momento.</li>
+                    <li><span className="font-semibold">Acesso Rápido:</span> Visualize a história original, o cenário atual ou a feature BDD em um modal a qualquer momento.</li>
                     <li><span className="font-semibold">Copiar para a Área de Transferência:</span> Copie facilmente a história original, perguntas, sugestões, testes e protótipos.</li>
                      <li><span className="font-semibold">Navegação Inteligente:</span> Reinicie o processo ou volte para a seleção de histórias quebradas com um botão que se adapta ao contexto.</li>
                 </ul>
@@ -119,7 +126,7 @@ const FeaturesModal = ({ onClose }: { onClose: () => void; }) => (
 );
 
 
-const HomeScreen = ({ onChoice, onShowFeatures, onShowModelModal, onShowPrototypeModal }: { onChoice: (choice: 'refining' | 'generating' | 'transcribing' | 'bdd_input') => void; onShowFeatures: () => void; onShowModelModal: () => void; onShowPrototypeModal: () => void; }) => (
+const HomeScreen = ({ onChoice, onShowFeatures, onShowModelModal, onShowPrototypeModal }: { onChoice: (choice: 'refining' | 'generating' | 'transcribing' | 'bdd_input' | 'bdd_converting_doc_input') => void; onShowFeatures: () => void; onShowModelModal: () => void; onShowPrototypeModal: () => void; }) => (
     <div className="flex flex-col items-center justify-center min-h-screen p-4 -mt-20">
         <div className="w-full max-w-4xl bg-gray-800 rounded-lg shadow-xl p-6 text-center relative">
              <button 
@@ -130,7 +137,7 @@ const HomeScreen = ({ onChoice, onShowFeatures, onShowModelModal, onShowPrototyp
                 <InformationCircleIcon className="w-6 h-6" />
             </button>
             <h2 className="text-xl font-semibold mb-4 text-gray-200">Como você quer começar?</h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mt-6">
                 <button
                     onClick={() => onChoice('refining')}
                     className="flex flex-col items-center justify-center bg-gray-700 hover:bg-gray-600 text-white font-bold py-6 px-6 rounded-md transition-transform transform hover:scale-105"
@@ -161,7 +168,15 @@ const HomeScreen = ({ onChoice, onShowFeatures, onShowModelModal, onShowPrototyp
                 >
                     <DocumentTextIcon className="w-8 h-8 mx-auto mb-2 text-yellow-300" />
                     Criar Feature BDD
-                    <p className="text-sm font-normal text-gray-400 mt-1">Guie a IA para criar um arquivo .feature completo.</p>
+                    <p className="text-sm font-normal text-gray-400 mt-1">Guie a IA para criar um arquivo .feature do zero.</p>
+                </button>
+                <button
+                    onClick={() => onChoice('bdd_converting_doc_input')}
+                    className="flex flex-col items-center justify-center bg-gray-700 hover:bg-gray-600 text-white font-bold py-6 px-6 rounded-md transition-transform transform hover:scale-105 md:col-span-2 lg:col-span-1"
+                >
+                    <SwitchHorizontalIcon className="w-8 h-8 mx-auto mb-2 text-orange-300" />
+                    Converter Documento para BDD
+                    <p className="text-sm font-normal text-gray-400 mt-1">Transforme requisitos legados em um .feature.</p>
                 </button>
             </div>
         </div>
@@ -481,7 +496,7 @@ const PersonaAvatar = ({ persona }: { persona: Persona }) => {
     );
 };
 
-const OriginalStoryModal = ({ story, onClose }: { story: ParsedStory; onClose: () => void; }) => {
+const OriginalStoryModal = ({ story, onClose, titleOverride }: { story: ParsedStory; onClose: () => void; titleOverride?: string; }) => {
     const [copied, setCopied] = useState(false);
 
     const handleCopy = useCallback(() => {
@@ -510,7 +525,7 @@ const OriginalStoryModal = ({ story, onClose }: { story: ParsedStory; onClose: (
             <XIcon className="w-6 h-6" />
             </button>
             <div className="flex justify-between items-center mb-1 pr-12">
-                <h3 className="text-lg font-semibold text-purple-300">História Original</h3>
+                <h3 className="text-lg font-semibold text-purple-300">{titleOverride || "História Original"}</h3>
                 <button onClick={handleCopy} title="Copiar" className="text-gray-400 hover:text-white transition">
                     {copied ? <ClipboardCheckIcon className="w-5 h-5 text-green-400" /> : <ClipboardIcon className="w-5 h-5" />}
                 </button>
@@ -522,6 +537,49 @@ const OriginalStoryModal = ({ story, onClose }: { story: ParsedStory; onClose: (
             </pre>
             </div>
         </div>
+        </div>
+    );
+};
+
+const FeatureDescriptionModal = ({ description, onClose }: { description: string; onClose: () => void; }) => {
+    const [copied, setCopied] = useState(false);
+
+    const handleCopy = useCallback(() => {
+        navigator.clipboard.writeText(description);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+    }, [description]);
+    
+    return (
+        <div 
+            className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4 transition-opacity duration-300"
+            onClick={onClose}
+            aria-modal="true"
+            role="dialog"
+        >
+            <div 
+                className="bg-gray-800 rounded-lg shadow-xl max-w-3xl w-full p-6 border border-gray-700 relative animate-fade-in-up"
+                onClick={e => e.stopPropagation()} 
+            >
+                <button 
+                    onClick={onClose} 
+                    className="absolute top-4 right-4 text-gray-400 hover:text-white transition-colors p-1 rounded-full hover:bg-gray-700 z-10"
+                    aria-label="Fechar modal"
+                >
+                    <XIcon className="w-6 h-6" />
+                </button>
+                <div className="flex justify-between items-center mb-4 pr-12">
+                    <h3 className="text-lg font-semibold text-purple-300">Descrição da Funcionalidade</h3>
+                    <button onClick={handleCopy} title="Copiar" className="text-gray-400 hover:text-white transition">
+                        {copied ? <ClipboardCheckIcon className="w-5 h-5 text-green-400" /> : <ClipboardIcon className="w-5 h-5" />}
+                    </button>
+                </div>
+                <div className="max-h-[70vh] overflow-y-auto pr-2">
+                    <pre className="text-sm text-gray-300 whitespace-pre-wrap font-sans bg-gray-900/50 p-3 rounded-md">
+                        {description}
+                    </pre>
+                </div>
+            </div>
         </div>
     );
 };
@@ -651,9 +709,28 @@ const PrototypeModelModal = ({ initialModel, onSave, onClose }: { initialModel: 
     );
 };
 
+const ConfirmationModal = ({ action, onClose }: { action: ConfirmationAction; onClose: () => void; }) => {
+    if (!action) return null;
+
+    return (
+        <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4 transition-opacity duration-300">
+            <div className="bg-gray-800 rounded-lg shadow-xl max-w-md w-full p-6 border border-gray-700 animate-fade-in-up"
+                 onClick={e => e.stopPropagation()}
+            >
+                <h3 className="text-xl font-semibold text-yellow-300 mb-4">{action.title}</h3>
+                <p className="text-gray-300 mb-6">{action.message}</p>
+                <div className="flex justify-end gap-3">
+                    <button onClick={onClose} className="bg-gray-600 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded transition">Cancelar</button>
+                    <button onClick={() => { action.onConfirm(); onClose(); }} className="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded transition">Confirmar</button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
 
 const App: React.FC = () => {
-    type AppState = 'home' | 'refining' | 'generating' | 'transcribing' | 'bdd_input' | 'bdd_scenarios' | 'bdd_review' |'loading_generation' | 'loading_transcription' | 'loading_bdd_scenarios' | 'reviewing' | 'configuring' | 'loading' | 'planning' | 'error' | 'analyzing_complexity' | 'story_selection';
+    type AppState = 'home' | 'refining' | 'generating' | 'transcribing' | 'bdd_input' | 'bdd_scenarios' | 'bdd_review' | 'bdd_converting_doc_input' | 'bdd_breakdown_review' | 'bdd_feature_selection' | 'bdd_converting_doc_review' | 'loading_generation' | 'loading_transcription' | 'loading_bdd_scenarios' | 'loading_bdd_breakdown' | 'loading_bdd_conversion' | 'reviewing' | 'configuring' | 'loading' | 'planning' | 'error' | 'analyzing_complexity' | 'story_selection';
     const [appState, setAppState] = useState<AppState>('home');
 
     // Story refinement state
@@ -671,6 +748,9 @@ const App: React.FC = () => {
     const [poChecklistContent, setPoChecklistContent] = useState<string | null>(null);
     const [stepDefContent, setStepDefContent] = useState<string | null>(null);
     const [selectedTechnology, setSelectedTechnology] = useState('JavaScript - Cypress');
+    const [documentToConvert, setDocumentToConvert] = useState('');
+    const [featureSuggestions, setFeatureSuggestions] = useState<BddFeatureSuggestion[]>([]);
+    const [convertedFeatureFile, setConvertedFeatureFile] = useState('');
 
     // Shared planning state
     const [activePersonas, setActivePersonas] = useState<Persona[]>([]);
@@ -691,6 +771,7 @@ const App: React.FC = () => {
     
     // Modals and utils
     const [isOriginalStoryModalOpen, setIsOriginalStoryModalOpen] = useState(false);
+    const [isFeatureDescriptionModalOpen, setIsFeatureDescriptionModalOpen] = useState(false);
     const [isTechSelectionModalOpen, setIsTechSelectionModalOpen] = useState(false);
     const [isPoChecklistModalOpen, setIsPoChecklistModalOpen] = useState(false);
     const [isStepDefModalOpen, setIsStepDefModalOpen] = useState(false);
@@ -705,6 +786,7 @@ const App: React.FC = () => {
     const [localPrototypeModel, setLocalPrototypeModel] = useState<string>('');
     const [isPrototypeModelModalOpen, setIsPrototypeModelModalOpen] = useState(false);
     const [suggestedPrototype, setSuggestedPrototype] = useState<string | null>(null);
+    const [confirmationAction, setConfirmationAction] = useState<ConfirmationAction>(null);
     
     const conversationEndRef = useRef<HTMLDivElement>(null);
 
@@ -774,10 +856,62 @@ const App: React.FC = () => {
         }
     }, []);
 
+    const handleAnalyzeDocument = useCallback(async (document: string) => {
+        setAppState('loading_bdd_breakdown');
+        setDocumentToConvert(document);
+        setError(null);
+        try {
+            const suggestions = await analyzeAndBreakdownDocument(document);
+            setFeatureSuggestions(suggestions);
+            setAppState('bdd_breakdown_review');
+        } catch (err) {
+            setError(err instanceof Error ? err.message : 'Falha ao analisar o documento.');
+            setAppState('bdd_converting_doc_input');
+        }
+    }, []);
+
+    const handleConvertSelectedFeature = useCallback(async (featureTitle: string) => {
+        setAppState('loading_bdd_conversion');
+        setError(null);
+        try {
+            const featureFile = await convertDocumentToBdd(documentToConvert, featureTitle);
+            setConvertedFeatureFile(featureFile);
+            setAppState('bdd_converting_doc_review');
+        } catch (err) {
+            setError(err instanceof Error ? err.message : 'Falha ao converter a feature selecionada.');
+            setAppState('bdd_feature_selection');
+        }
+    }, [documentToConvert]);
+
+
+    const handleRefineConvertedFeature = useCallback(() => {
+        const lines = convertedFeatureFile.trim().split('\n');
+        const featureLine = lines.find(line => line.trim().startsWith('Funcionalidade:')) || 'Funcionalidade: Feature a ser refinada';
+        const description = featureLine.replace('Funcionalidade:', '').trim();
+        setFeatureDescription(description);
+
+        const scenarioRegex = /Cenário:\s*(.*)/g;
+        let match;
+        const scenarios: string[] = [];
+        while ((match = scenarioRegex.exec(convertedFeatureFile)) !== null) {
+            scenarios.push(match[1].trim());
+        }
+
+        const initialBddScenarios = scenarios.map((title, i) => ({
+            id: Date.now() + i,
+            title,
+            gherkin: null, 
+            completed: false,
+        }));
+
+        setBddScenarios(initialBddScenarios);
+        setAppState('bdd_scenarios');
+    }, [convertedFeatureFile]);
+
     const handleDetailScenario = useCallback((index: number) => {
         setCurrentScenarioIndex(index);
         const scenario = bddScenarios[index];
-        setOriginalStory({ title: scenario.title, description: featureDescription });
+        setOriginalStory({ title: scenario.title, description: `Este é um cenário para a funcionalidade: "${featureDescription}"` });
         setPlanningMode('bdd');
         setAppState('configuring');
     }, [bddScenarios, featureDescription]);
@@ -1047,10 +1181,8 @@ const App: React.FC = () => {
         setAppState('configuring');
     }, []);
 
-
     const resetApp = () => {
         setAppState('home');
-        // Reset all states
         setOriginalStory(null);
         setSuggestedStory(null);
         setSplitStories([]);
@@ -1062,6 +1194,9 @@ const App: React.FC = () => {
         setGeneratedGherkin(null);
         setPoChecklistContent(null);
         setStepDefContent(null);
+        setDocumentToConvert('');
+        setFeatureSuggestions([]);
+        setConvertedFeatureFile('');
         setActivePersonas([]);
         setConversation([]);
         setCurrentAnswer('');
@@ -1076,6 +1211,7 @@ const App: React.FC = () => {
         setIsGeneratingSteps(false);
         setError(null);
         setIsOriginalStoryModalOpen(false);
+        setIsFeatureDescriptionModalOpen(false);
         setIsTechSelectionModalOpen(false);
         setIsPoChecklistModalOpen(false);
         setIsStepDefModalOpen(false);
@@ -1090,28 +1226,46 @@ const App: React.FC = () => {
         setLocalPrototypeModel('');
         setIsPrototypeModelModalOpen(false);
         setSuggestedPrototype(null);
+        setConfirmationAction(null);
     };
 
     const handleRestart = () => {
-        if (window.confirm("Tem certeza que deseja recomeçar? Todo o progresso será perdido.")) {
-            resetApp();
-        }
+        setConfirmationAction({
+            title: "Confirmar Reinício",
+            message: "Tem certeza que deseja recomeçar? Todo o progresso será perdido.",
+            onConfirm: resetApp
+        });
     };
 
     const isRefiningSplitStory = (appState === 'planning' || appState === 'configuring') && splitStories.length > 0;
 
     const handleBackToSelection = () => {
-         if (window.confirm("Tem certeza que deseja voltar para a seleção? O progresso nesta história será perdido.")) {
-            setConversation([]);
-            setSuggestedStory(null);
-            setError(null);
-            setCurrentAnswer('');
-            setTestScenarios(null);
-            setOriginalStory(null); 
-            
-            setAppState('story_selection');
-        }
-    }
+        const confirmLogic = () => {
+           setConversation([]);
+           setSuggestedStory(null);
+           setError(null);
+           setCurrentAnswer('');
+           setTestScenarios(null);
+           setOriginalStory(null); 
+           setAppState('story_selection');
+        };
+        setConfirmationAction({
+            title: "Voltar para Seleção",
+            message: "Tem certeza que deseja voltar? O progresso nesta história será perdido.",
+            onConfirm: confirmLogic
+        });
+    };
+
+    const handleDeleteBddScenario = (id: number) => {
+        setConfirmationAction({
+            title: "Remover Cenário",
+            message: "Tem certeza que deseja remover este cenário?",
+            onConfirm: () => {
+                setBddScenarios(prev => prev.filter(s => s.id !== id));
+            }
+        });
+    };
+
 
     const headerAction = isRefiningSplitStory ? handleBackToSelection : handleRestart;
     const headerText = isRefiningSplitStory ? 'Voltar para Seleção' : 'Recomeçar';
@@ -1121,7 +1275,7 @@ const App: React.FC = () => {
             <div className="flex flex-col items-center justify-center min-h-screen p-4 text-center">
                 <h2 className="text-2xl text-red-400 mb-4">Ocorreu um Erro</h2>
                 <p className="text-gray-400 mb-6">{error}</p>
-                <button onClick={() => resetApp()} className="bg-purple-600 hover:bg-purple-700 text-white font-bold py-2 px-4 rounded">
+                <button onClick={resetApp} className="bg-purple-600 hover:bg-purple-700 text-white font-bold py-2 px-4 rounded">
                     Começar de Novo
                 </button>
             </div>
@@ -1169,7 +1323,6 @@ const App: React.FC = () => {
                     </div>
                 );
              case 'bdd_scenarios':
-                 // This component is complex, so let's define it here.
                 const BddScenarioList = () => {
                     const [editingIndex, setEditingIndex] = useState<number | null>(null);
                     const [editingText, setEditingText] = useState('');
@@ -1184,12 +1337,6 @@ const App: React.FC = () => {
                         updated[index].title = editingText;
                         setBddScenarios(updated);
                         setEditingIndex(null);
-                    };
-
-                    const handleDelete = (id: number) => {
-                        if(window.confirm("Tem certeza que deseja remover este cenário?")) {
-                            setBddScenarios(bddScenarios.filter(s => s.id !== id));
-                        }
                     };
 
                     const handleAdd = () => {
@@ -1224,7 +1371,7 @@ const App: React.FC = () => {
                                                 {!scenario.completed && (
                                                     <>
                                                         <button onClick={() => handleEdit(index)} title="Editar"><PencilIcon className="w-5 h-5 text-gray-400 hover:text-yellow-300" /></button>
-                                                        <button onClick={() => handleDelete(scenario.id)} title="Remover"><TrashIcon className="w-5 h-5 text-gray-400 hover:text-red-400" /></button>
+                                                        <button onClick={() => handleDeleteBddScenario(scenario.id)} title="Remover"><TrashIcon className="w-5 h-5 text-gray-400 hover:text-red-400" /></button>
                                                         <button onClick={() => handleDetailScenario(index)} className="text-sm bg-purple-600 hover:bg-purple-700 text-white font-bold py-1 px-3 rounded">Detalhar</button>
                                                     </>
                                                 )}
@@ -1289,12 +1436,125 @@ const App: React.FC = () => {
                     );
                 };
                 return <BddFeatureReviewScreen />;
+            case 'bdd_converting_doc_input':
+                return (
+                    <div className="flex flex-col items-center justify-center min-h-screen p-4 -mt-20">
+                        <div className="w-full max-w-3xl bg-gray-800 rounded-lg shadow-xl p-6">
+                            <h2 className="text-xl font-semibold mb-2 text-gray-200">Converter Documento para BDD</h2>
+                            <p className="text-gray-400 mb-4 text-sm">Cole o conteúdo de um documento de requisitos tradicional. A IA atuará como um Arquiteto de Produto para analisá-lo e sugerir uma quebra em features menores.</p>
+                            <textarea
+                                className="w-full h-80 p-3 bg-gray-900 border border-gray-700 rounded-md focus:ring-2 focus:ring-purple-500 transition text-gray-300 resize-y"
+                                value={documentToConvert}
+                                onChange={(e) => setDocumentToConvert(e.target.value)}
+                                placeholder="Cole o documento de requisitos aqui..."
+                            />
+                            {error && <p className="text-red-400 mt-2 text-sm">{error}</p>}
+                            <button
+                                onClick={() => handleAnalyzeDocument(documentToConvert)}
+                                disabled={!documentToConvert.trim()}
+                                className="mt-6 w-full bg-purple-600 hover:bg-purple-700 disabled:bg-gray-500 text-white font-bold py-2 px-4 rounded-md transition-transform transform hover:scale-105"
+                            >
+                                Analisar e Quebrar Documento
+                            </button>
+                        </div>
+                    </div>
+                );
+            case 'bdd_breakdown_review':
+                 const BddBreakdownReviewScreen = () => {
+                    const [suggestions, setSuggestions] = useState(featureSuggestions);
+                    
+                    const handleUpdateTitle = (index: number, newTitle: string) => {
+                        const updated = [...suggestions];
+                        updated[index].title = newTitle;
+                        setSuggestions(updated);
+                    };
+
+                    return (
+                        <div className="flex flex-col items-center justify-center min-h-screen p-4 -mt-20">
+                            <div className="w-full max-w-3xl bg-gray-800 rounded-lg shadow-xl p-6">
+                                <h2 className="text-xl font-semibold mb-2 text-gray-200">Revisão da Quebra de Features</h2>
+                                <p className="text-gray-400 mb-6 text-sm">A IA analisou o documento e sugere dividi-lo nas seguintes features. Você pode editar os títulos antes de continuar.</p>
+                                <div className="space-y-3 max-h-[60vh] overflow-y-auto pr-2">
+                                    {suggestions.map((feature, index) => (
+                                        <div key={index} className="bg-gray-700/50 p-4 rounded-md">
+                                            <input
+                                                type="text"
+                                                value={feature.title}
+                                                onChange={(e) => handleUpdateTitle(index, e.target.value)}
+                                                className="w-full p-1 mb-2 bg-gray-900 border border-purple-500 rounded-md text-purple-300 font-semibold"
+                                            />
+                                            <p className="text-gray-400 text-sm">{feature.summary}</p>
+                                        </div>
+                                    ))}
+                                </div>
+                                <div className="flex justify-end mt-6">
+                                    <button onClick={() => { setFeatureSuggestions(suggestions); setAppState('bdd_feature_selection'); }} className="bg-purple-600 hover:bg-purple-700 text-white font-bold py-2 px-4 rounded">Aprovar Quebra e Selecionar</button>
+                                </div>
+                            </div>
+                        </div>
+                    );
+                };
+                return <BddBreakdownReviewScreen />;
+            case 'bdd_feature_selection':
+                return (
+                     <div className="flex flex-col items-center justify-center min-h-screen p-4 -mt-20">
+                        <div className="w-full max-w-3xl bg-gray-800 rounded-lg shadow-xl p-6">
+                            <h2 className="text-xl font-semibold mb-2 text-gray-200">Selecione uma Feature para Converter</h2>
+                            <p className="text-gray-400 mb-6 text-sm">Escolha qual das features aprovadas você deseja converter para o formato .feature agora.</p>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                {featureSuggestions.map((feature, index) => (
+                                    <button 
+                                        key={index} 
+                                        onClick={() => handleConvertSelectedFeature(feature.title)}
+                                        className="bg-gray-700 hover:bg-gray-600 text-left p-4 rounded-md transition-transform transform hover:scale-105"
+                                    >
+                                        <h3 className="font-bold text-purple-300">{feature.title}</h3>
+                                        <p className="text-sm text-gray-400 mt-2 line-clamp-3">{feature.summary}</p>
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+                    </div>
+                );
+            case 'bdd_converting_doc_review':
+                 const BddConvertedReviewScreen = () => {
+                    const [copied, setCopied] = useState(false);
+                    const handleCopy = () => {
+                        navigator.clipboard.writeText(convertedFeatureFile);
+                        setCopied(true);
+                        setTimeout(() => setCopied(false), 2000);
+                    };
+
+                    return (
+                        <div className="flex flex-col items-center justify-center min-h-screen p-4 -mt-20">
+                            <div className="w-full max-w-4xl bg-gray-800 rounded-lg shadow-xl p-6">
+                                <h2 className="text-xl font-semibold mb-2 text-gray-200">Revisão do .feature Convertido</h2>
+                                <p className="text-gray-400 mb-4 text-sm">A IA gerou o arquivo .feature abaixo. Você pode copiá-lo ou prosseguir para refiná-lo no fluxo guiado.</p>
+                                <div className="relative">
+                                    <button onClick={handleCopy} title="Copiar" className="absolute top-2 right-2 text-gray-400 hover:text-white transition">
+                                        {copied ? <ClipboardCheckIcon className="w-5 h-5 text-green-400" /> : <ClipboardIcon className="w-5 h-5" />}
+                                    </button>
+                                    <pre className="text-sm text-gray-300 whitespace-pre-wrap font-mono bg-gray-900/50 p-4 rounded-md max-h-[60vh] overflow-y-auto">{convertedFeatureFile}</pre>
+                                </div>
+                                <div className="flex justify-end gap-4 mt-6">
+                                     <button onClick={() => setAppState('bdd_feature_selection')} className="bg-gray-600 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded">Voltar</button>
+                                    <button onClick={handleRefineConvertedFeature} className="bg-purple-600 hover:bg-purple-700 text-white font-bold py-2 px-4 rounded">Refinar Feature</button>
+                                </div>
+                            </div>
+                        </div>
+                    );
+                };
+                return <BddConvertedReviewScreen />;
             case 'loading_generation':
                 return <div className="h-screen -mt-20"><Loader text="A IA está gerando sua história..." /></div>;
             case 'loading_transcription':
                 return <div className="h-screen -mt-20"><Loader text="A IA está analisando a transcrição e gerando histórias..." /></div>;
              case 'loading_bdd_scenarios':
                 return <div className="h-screen -mt-20"><Loader text="A IA está fazendo um brainstorm de cenários..." /></div>;
+             case 'loading_bdd_breakdown':
+                return <div className="h-screen -mt-20"><Loader text="O Arquiteto de Produto da IA está analisando seu documento..." /></div>;
+             case 'loading_bdd_conversion':
+                return <div className="h-screen -mt-20"><Loader text="O Analista de Negócios Sênior da IA está convertendo a feature focada..." /></div>;
             case 'reviewing':
                 return originalStory && <ReviewGeneratedStory story={originalStory} onConfirm={handleReviewConfirm} onEdit={setOriginalStory} />;
             case 'configuring':
@@ -1307,31 +1567,51 @@ const App: React.FC = () => {
                 return originalStory && (
                     <main className="p-4 lg:p-8 grid grid-cols-1 lg:grid-cols-12 gap-8 max-w-screen-2xl mx-auto">
                         <div className="lg:col-span-7 flex flex-col">
-                            {/* Main planning left panel (unchanged) */}
                             <div className="flex-grow bg-gray-800/50 rounded-lg p-4 lg:p-6 border border-gray-700 mb-6">
                                 <div className="flex justify-between items-center mb-4">
                                     <h3 className="text-lg font-semibold text-cyan-300">Sessão de Planejamento</h3>
-                                    {planningMode === 'story' && (
-                                     <div className="flex items-center gap-2">
-                                        <button
-                                            onClick={handleAnalyzeComplexity}
-                                            disabled={isAnalyzingComplexity}
-                                            className="flex items-center gap-2 text-sm text-gray-300 hover:text-purple-300 transition-colors py-1 px-3 rounded-md hover:bg-gray-700/50 disabled:cursor-not-allowed"
-                                            title="Analisar complexidade da história"
-                                        >
-                                            <ScaleIcon className="w-5 h-5" />
-                                            <span>Analisar Complexidade</span>
-                                        </button>
-                                        <button
-                                            onClick={() => setIsOriginalStoryModalOpen(true)}
-                                            className="flex items-center gap-2 text-sm text-gray-300 hover:text-purple-300 transition-colors py-1 px-3 rounded-md hover:bg-gray-700/50"
-                                            title="Visualizar a história original"
-                                        >
-                                            <BookOpenIcon className="w-5 h-5" />
-                                            <span>Ver História Original</span>
-                                        </button>
+                                    <div className="flex items-center gap-2">
+                                        {planningMode === 'story' ? (
+                                            <>
+                                                <button
+                                                    onClick={handleAnalyzeComplexity}
+                                                    disabled={isAnalyzingComplexity}
+                                                    className="flex items-center gap-2 text-sm text-gray-300 hover:text-purple-300 transition-colors py-1 px-3 rounded-md hover:bg-gray-700/50 disabled:cursor-not-allowed"
+                                                    title="Analisar complexidade da história"
+                                                >
+                                                    <ScaleIcon className="w-5 h-5" />
+                                                    <span>Analisar Complexidade</span>
+                                                </button>
+                                                <button
+                                                    onClick={() => setIsOriginalStoryModalOpen(true)}
+                                                    className="flex items-center gap-2 text-sm text-gray-300 hover:text-purple-300 transition-colors py-1 px-3 rounded-md hover:bg-gray-700/50"
+                                                    title="Visualizar a história original"
+                                                >
+                                                    <BookOpenIcon className="w-5 h-5" />
+                                                    <span>Ver História</span>
+                                                </button>
+                                            </>
+                                        ) : (
+                                            <>
+                                                <button
+                                                    onClick={() => setIsFeatureDescriptionModalOpen(true)}
+                                                    className="flex items-center gap-2 text-sm text-gray-300 hover:text-purple-300 transition-colors py-1 px-3 rounded-md hover:bg-gray-700/50"
+                                                    title="Visualizar a feature completa"
+                                                >
+                                                    <DocumentTextIcon className="w-5 h-5" />
+                                                    <span>Ver Feature</span>
+                                                </button>
+                                                 <button
+                                                    onClick={() => setIsOriginalStoryModalOpen(true)}
+                                                    className="flex items-center gap-2 text-sm text-gray-300 hover:text-purple-300 transition-colors py-1 px-3 rounded-md hover:bg-gray-700/50"
+                                                    title="Visualizar o cenário atual"
+                                                >
+                                                    <BookOpenIcon className="w-5 h-5" />
+                                                    <span>Ver Cenário</span>
+                                                </button>
+                                            </>
+                                        )}
                                     </div>
-                                    )}
                                 </div>
                                 {isAnalyzingComplexity && <Loader text="Analisando complexidade..." />}
                                 <div className="space-y-6 max-h-[50vh] overflow-y-auto pr-2">
@@ -1501,7 +1781,14 @@ const App: React.FC = () => {
             {isOriginalStoryModalOpen && originalStory && (
                 <OriginalStoryModal 
                     story={originalStory} 
-                    onClose={() => setIsOriginalStoryModalOpen(false)} 
+                    onClose={() => setIsOriginalStoryModalOpen(false)}
+                    titleOverride={planningMode === 'bdd' ? 'Cenário Atual' : undefined}
+                />
+            )}
+            {isFeatureDescriptionModalOpen && (
+                 <FeatureDescriptionModal 
+                    description={featureDescription}
+                    onClose={() => setIsFeatureDescriptionModalOpen(false)}
                 />
             )}
              {isFeaturesModalOpen && <FeaturesModal onClose={() => setIsFeaturesModalOpen(false)} />}
@@ -1582,6 +1869,7 @@ const App: React.FC = () => {
                     </div>
                  </div>
             )}
+            {confirmationAction && <ConfirmationModal action={confirmationAction} onClose={() => setConfirmationAction(null)} />}
         </div>
     );
 };

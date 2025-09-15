@@ -39,3 +39,8 @@ export interface ComplexityAnalysisResult {
   justification: string;
   suggestedStories?: SplitStory[];
 }
+
+export interface BddFeatureSuggestion {
+  title: string;
+  summary: string;
+}
