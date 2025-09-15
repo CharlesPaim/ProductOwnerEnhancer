@@ -970,6 +970,11 @@ const App: React.FC = () => {
     const [suggestedPrototype, setSuggestedPrototype] = useState<string | null>(null);
     const [confirmationAction, setConfirmationAction] = useState<ConfirmationAction>(null);
     
+    // Cache states
+    const [complexityCache, setComplexityCache] = useState<{ description: string; result: ComplexityAnalysisResult; } | null>(null);
+    const [testScenariosCache, setTestScenariosCache] = useState<{ description: string; scenarios: string; } | null>(null);
+    const [prototypeCache, setPrototypeCache] = useState<{ description: string; model: string; prototype: string; } | null>(null);
+
     const conversationEndRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
@@ -1218,10 +1223,14 @@ const App: React.FC = () => {
     const handleGetSuggestion = useCallback(async () => {
         if (!originalStory || conversation.length === 0) return;
         setIsSuggesting(true);
-        setSuggestedStory(null);
+        setError(null);
+        // Invalidate caches
+        setTestScenariosCache(null);
+        setPrototypeCache(null);
+        setComplexityCache(null);
         setTestScenarios(null);
         setSuggestedPrototype(null);
-        setError(null);
+        setComplexityAnalysis(null);
         try {
             const lastTurn = conversation[conversation.length - 1];
             const conversationForSuggestion = lastTurn.answer ? conversation : conversation.slice(0, -1);
@@ -1238,11 +1247,16 @@ const App: React.FC = () => {
         if (!suggestedStory || !refinementPrompt.trim()) return;
         setIsRefining(true);
         setError(null);
+        // Invalidate caches
+        setTestScenariosCache(null);
+        setPrototypeCache(null);
+        setComplexityCache(null);
+        setTestScenarios(null);
+        setSuggestedPrototype(null);
+        setComplexityAnalysis(null);
         try {
             const refined = await refineSuggestedStory(suggestedStory, refinementPrompt);
             setSuggestedStory(refined);
-            setTestScenarios(null);
-            setSuggestedPrototype(null);
             setRefinementPrompt('');
         } catch (err) {
             setError(err instanceof Error ? err.message : 'Falha ao refinar a sugestão.');
@@ -1290,52 +1304,73 @@ const App: React.FC = () => {
     
     const handleGenerateScenarios = useCallback(async () => {
         if (!originalStory) return;
+        const storyToTest = suggestedStory ?? originalStory.description;
+
+        if (testScenariosCache && testScenariosCache.description === storyToTest) {
+            setTestScenarios(testScenariosCache.scenarios);
+            return;
+        }
+
         setIsGeneratingScenarios(true);
         setTestScenarios(null);
         setError(null);
         try {
-            const storyToTest = suggestedStory ?? originalStory.description;
             const scenarios = await generateTestScenarios(storyToTest);
             setTestScenarios(scenarios);
+            setTestScenariosCache({ description: storyToTest, scenarios });
         } catch (err) {
              setError(err instanceof Error ? err.message : 'Falha ao gerar cenários de teste.');
         } finally {
             setIsGeneratingScenarios(false);
         }
-    }, [originalStory, suggestedStory]);
+    }, [originalStory, suggestedStory, testScenariosCache]);
 
     const handleAnalyzeComplexity = useCallback(async () => {
         if (!originalStory) return;
+        const storyToAnalyze = suggestedStory ? { title: originalStory.title, description: suggestedStory } : originalStory;
+
+        if (complexityCache && complexityCache.description === storyToAnalyze.description) {
+            setComplexityAnalysis(complexityCache.result);
+            return;
+        }
+
         setIsAnalyzingComplexity(true);
         setComplexityAnalysis(null);
         setError(null);
         try {
-            const storyToAnalyze = suggestedStory ? { title: originalStory.title, description: suggestedStory } : originalStory;
             const result = await analyzeStoryComplexity(storyToAnalyze);
             setComplexityAnalysis(result);
+            setComplexityCache({ description: storyToAnalyze.description, result });
         } catch (err) {
             setError(err instanceof Error ? err.message : 'Falha ao analisar a complexidade.');
         } finally {
             setIsAnalyzingComplexity(false);
         }
-    }, [originalStory, suggestedStory]);
+    }, [originalStory, suggestedStory, complexityCache]);
 
     const handleGeneratePrototype = useCallback(async () => {
         if (!originalStory) return;
+        const storyToPrototype = suggestedStory ?? originalStory.description;
+        const modelToUse = localPrototypeModel || prototypeModel;
+
+        if (prototypeCache && prototypeCache.description === storyToPrototype && prototypeCache.model === modelToUse) {
+            setSuggestedPrototype(prototypeCache.prototype);
+            return;
+        }
+
         setIsGeneratingPrototype(true);
         setSuggestedPrototype(null);
         setError(null);
         try {
-            const storyToPrototype = suggestedStory ?? originalStory.description;
-            const modelToUse = localPrototypeModel || prototypeModel;
             const prototypeCode = await generatePrototype(storyToPrototype, modelToUse);
             setSuggestedPrototype(prototypeCode);
+            setPrototypeCache({ description: storyToPrototype, model: modelToUse, prototype: prototypeCode });
         } catch (err) {
              setError(err instanceof Error ? err.message : 'Falha ao gerar o protótipo.');
         } finally {
             setIsGeneratingPrototype(false);
         }
-    }, [originalStory, suggestedStory, prototypeModel, localPrototypeModel]);
+    }, [originalStory, suggestedStory, prototypeModel, localPrototypeModel, prototypeCache]);
 
     const handleGeneratePoChecklist = useCallback(async (featureFileContent: string) => {
         if (poChecklistCache && poChecklistCache.featureContent === featureFileContent) {
@@ -1400,6 +1435,10 @@ const App: React.FC = () => {
         setSuggestedPrototype(null);
         setComplexityAnalysis(null);
         setLocalPrototypeModel('');
+        // Reset Caches
+        setComplexityCache(null);
+        setTestScenariosCache(null);
+        setPrototypeCache(null);
         
         // Set new story and move to config
         setOriginalStory(story);
@@ -1457,6 +1496,10 @@ const App: React.FC = () => {
         setConfirmationAction(null);
         setPoChecklistCache(null);
         setStepDefCache(null);
+        // Reset Caches
+        setComplexityCache(null);
+        setTestScenariosCache(null);
+        setPrototypeCache(null);
     };
 
     const handleRestart = () => {
