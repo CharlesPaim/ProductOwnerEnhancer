@@ -14,7 +14,7 @@ const personaToKey = (p: Persona): string => {
     }
 };
 
-const Header = ({ onRestart, showRestart, text, onShowModelModal, onShowPrototypeModal, showModelButtons }: { onRestart: () => void; showRestart: boolean; text: string; onShowModelModal: () => void; onShowPrototypeModal: () => void; showModelButtons: boolean; }) => (
+const Header = ({ onRestart, showRestart, text }: { onRestart: () => void; showRestart: boolean; text: string; }) => (
     <header className="relative bg-gray-900/80 backdrop-blur-sm p-4 border-b border-gray-700 sticky top-0 z-20 flex items-center justify-center h-[85px]">
         <div className="text-center">
             <h1 className="text-2xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-purple-400 to-cyan-400">
@@ -23,26 +23,6 @@ const Header = ({ onRestart, showRestart, text, onShowModelModal, onShowPrototyp
             <p className="text-center text-gray-400 text-sm mt-1">Gere e refine histórias de usuário com o poder da IA</p>
         </div>
         <div className="absolute right-4 top-1/2 -translate-y-1/2 flex items-center gap-4">
-             {showModelButtons && (
-                <>
-                    <button 
-                        onClick={onShowModelModal}
-                        className="flex items-center gap-2 text-sm text-gray-300 hover:text-purple-300 transition-colors py-1 px-3 rounded-md hover:bg-gray-700/50"
-                        title="Definir modelo de história"
-                    >
-                        <TemplateIcon className="w-5 h-5" />
-                        <span>Definir Modelo</span>
-                    </button>
-                     <button 
-                        onClick={onShowPrototypeModal}
-                        className="flex items-center gap-2 text-sm text-gray-300 hover:text-purple-300 transition-colors py-1 px-3 rounded-md hover:bg-gray-700/50"
-                        title="Definir modelo de protótipo"
-                    >
-                        <ViewBoardsIcon className="w-5 h-5" />
-                        <span>Definir Protótipo</span>
-                    </button>
-                </>
-            )}
             {showRestart && (
                 <button 
                     onClick={onRestart}
@@ -89,11 +69,10 @@ const FeaturesModal = ({ onClose }: { onClose: () => void; }) => (
                 </ul>
             </div>
             <div>
-                <h4 className="font-bold text-cyan-300">Geração de Artefatos</h4>
+                <h4 className="font-bold text-cyan-300">Configuração Global (na Tela Inicial)</h4>
                 <ul className="list-disc list-inside space-y-1 mt-1">
-                    <li><span className="font-semibold">Modelo Global de História:</span> Defina um modelo de formatação que a IA usará para todas as histórias geradas.</li>
-                    <li><span className="font-semibold">Modelo Global de Protótipo:</span> Defina um código de exemplo para que a IA siga o seu design system.</li>
-                    <li><span className="font-semibold">Revisão Humana:</span> Edite a história gerada pela IA antes de iniciar o refinamento.</li>
+                    <li><span className="font-semibold">Modelo de História:</span> Defina um modelo de formatação que a IA usará para todas as histórias geradas na sessão.</li>
+                    <li><span className="font-semibold">Modelo de Protótipo:</span> Defina um código de exemplo para que a IA siga o seu design system.</li>
                 </ul>
             </div>
             <div>
@@ -132,7 +111,7 @@ const FeaturesModal = ({ onClose }: { onClose: () => void; }) => (
 );
 
 
-const HomeScreen = ({ onChoice, onShowFeatures }: { onChoice: (choice: 'refining' | 'generating' | 'transcribing') => void; onShowFeatures: () => void; }) => (
+const HomeScreen = ({ onChoice, onShowFeatures, onShowModelModal, onShowPrototypeModal }: { onChoice: (choice: 'refining' | 'generating' | 'transcribing') => void; onShowFeatures: () => void; onShowModelModal: () => void; onShowPrototypeModal: () => void; }) => (
     <div className="flex flex-col items-center justify-center min-h-screen p-4 -mt-20">
         <div className="w-full max-w-4xl bg-gray-800 rounded-lg shadow-xl p-6 text-center relative">
              <button 
@@ -169,6 +148,24 @@ const HomeScreen = ({ onChoice, onShowFeatures }: { onChoice: (choice: 'refining
                      <p className="text-sm font-normal text-gray-400 mt-1">Transforme uma reunião em propostas de histórias.</p>
                 </button>
             </div>
+        </div>
+        <div className="mt-8 flex justify-center gap-6">
+            <button 
+                onClick={onShowModelModal}
+                className="flex items-center gap-2 text-sm text-gray-400 hover:text-purple-300 transition-colors py-2 px-4 rounded-md hover:bg-gray-800/60"
+                title="Definir modelo de história para a sessão"
+            >
+                <TemplateIcon className="w-5 h-5" />
+                <span>Definir Modelo de História</span>
+            </button>
+                <button 
+                onClick={onShowPrototypeModal}
+                className="flex items-center gap-2 text-sm text-gray-400 hover:text-purple-300 transition-colors py-2 px-4 rounded-md hover:bg-gray-800/60"
+                title="Definir modelo de protótipo para a sessão"
+            >
+                <ViewBoardsIcon className="w-5 h-5" />
+                <span>Definir Modelo de Protótipo</span>
+            </button>
         </div>
     </div>
 );
@@ -959,8 +956,7 @@ const App: React.FC = () => {
 
     const headerAction = isRefiningSplitStory ? handleBackToSelection : handleRestart;
     const headerText = isRefiningSplitStory ? 'Voltar para Seleção' : 'Recomeçar';
-    const showModelButtons = ['generating', 'transcribing', 'reviewing', 'planning', 'story_selection', 'configuring', 'refining'].includes(appState);
-
+    
     if (appState === 'error') {
         return (
             <div className="flex flex-col items-center justify-center min-h-screen p-4 text-center">
@@ -978,7 +974,12 @@ const App: React.FC = () => {
     const renderContent = () => {
         switch (appState) {
             case 'home':
-                return <HomeScreen onChoice={setAppState as (choice: 'refining' | 'generating' | 'transcribing') => void} onShowFeatures={() => setIsFeaturesModalOpen(true)} />;
+                return <HomeScreen 
+                            onChoice={setAppState as (choice: 'refining' | 'generating' | 'transcribing') => void} 
+                            onShowFeatures={() => setIsFeaturesModalOpen(true)}
+                            onShowModelModal={() => setIsModelStoryModalOpen(true)}
+                            onShowPrototypeModal={() => setIsPrototypeModelModalOpen(true)}
+                        />;
             case 'refining':
                 return <StoryInput onStorySubmit={handleStorySubmit} />;
             case 'generating':
@@ -1185,9 +1186,6 @@ const App: React.FC = () => {
                 onRestart={headerAction} 
                 showRestart={appState !== 'home'} 
                 text={headerText}
-                onShowModelModal={() => setIsModelStoryModalOpen(true)}
-                onShowPrototypeModal={() => setIsPrototypeModelModalOpen(true)}
-                showModelButtons={showModelButtons}
             />
             {renderContent()}
             {isOriginalStoryModalOpen && originalStory && (
