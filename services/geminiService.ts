@@ -347,8 +347,12 @@ export const analyzeStoryComplexity = async (story: ParsedStory): Promise<Comple
     }
 };
 
-export const generateStoriesFromTranscript = async (transcript: string): Promise<SplitStory[]> => {
+export const generateStoriesFromTranscript = async (transcript: string, modelStory?: string): Promise<SplitStory[]> => {
     try {
+        const modelStoryPrompt = modelStory
+            ? `Use a seguinte história como modelo para a estrutura e formatação de CADA história gerada (ex: +**...**+, **Como**...): \n---\n${modelStory}\n---`
+            : "Para cada história, use o formato padrão: Título, seguido por 'Como [persona], Eu quero [objetivo], Para que [benefício]', e critérios de aceitação 'Dado... Quando... Então...'.";
+
         const prompt = `
         Você é um Product Owner Sênior, especialista em transformar discussões de reuniões em artefatos de backlog acionáveis.
         Sua tarefa é analisar a transcrição de uma reunião, identificar os principais temas e requisitos, e gerar uma lista de histórias de usuário.
@@ -358,10 +362,13 @@ export const generateStoriesFromTranscript = async (transcript: string): Promise
         ${transcript}
         ---
 
+        **Diretrizes de Estrutura:**
+        ${modelStoryPrompt}
+
         **Instruções:**
         1.  Leia atentamente a transcrição para compreender os problemas, necessidades e decisões discutidas.
         2.  Agrupe os pontos relacionados em temas coesos.
-        3.  Para cada tema, crie uma história de usuário bem estruturada. Cada história deve ter um título claro e uma descrição no formato "Como..., Eu quero..., Para que..." com critérios de aceitação "Dado..., Quando..., Então...".
+        3.  Para cada tema, crie uma história de usuário bem estruturada, seguindo estritamente as diretrizes de estrutura. Cada história deve ter um título claro e uma descrição completa.
         4.  Se a transcrição for muito vaga para um tema, crie uma história de "Spike" (pesquisa) para investigar mais a fundo.
         5.  Foque em gerar de 2 a 5 histórias de usuário principais que capturem a essência da discussão.
 

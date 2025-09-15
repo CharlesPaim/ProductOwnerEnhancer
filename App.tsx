@@ -1,7 +1,7 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { Persona, ParsedStory, RedmineIssue, ConversationTurn, ComplexityAnalysisResult, SplitStory } from './types';
 import { generateInitialQuestions, suggestNewStoryVersion, generateFollowUpQuestion, generateNewStory, refineSuggestedStory, generateTestScenarios, analyzeStoryComplexity, generateStoriesFromTranscript } from './services/geminiService';
-import { personaDetails, UserIcon, BookOpenIcon, XIcon, MenuIcon, SparklesIcon, HomeIcon, ClipboardIcon, ClipboardCheckIcon, ClipboardListIcon, InformationCircleIcon, ScaleIcon, MicrophoneIcon } from './components/icons';
+import { personaDetails, UserIcon, BookOpenIcon, XIcon, MenuIcon, SparklesIcon, HomeIcon, ClipboardIcon, ClipboardCheckIcon, ClipboardListIcon, InformationCircleIcon, ScaleIcon, MicrophoneIcon, TemplateIcon } from './components/icons';
 
 const personaToKey = (p: Persona): string => {
     switch(p) {
@@ -14,7 +14,7 @@ const personaToKey = (p: Persona): string => {
     }
 };
 
-const Header = ({ onRestart, showRestart, text }: { onRestart: () => void; showRestart: boolean; text: string; }) => (
+const Header = ({ onRestart, showRestart, text, onShowModelModal, showModelButton }: { onRestart: () => void; showRestart: boolean; text: string; onShowModelModal: () => void; showModelButton: boolean; }) => (
     <header className="relative bg-gray-900/80 backdrop-blur-sm p-4 border-b border-gray-700 sticky top-0 z-20 flex items-center justify-center h-[85px]">
         <div className="text-center">
             <h1 className="text-2xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-purple-400 to-cyan-400">
@@ -22,7 +22,17 @@ const Header = ({ onRestart, showRestart, text }: { onRestart: () => void; showR
             </h1>
             <p className="text-center text-gray-400 text-sm mt-1">Gere e refine histórias de usuário com o poder da IA</p>
         </div>
-        <div className="absolute right-4 top-1/2 -translate-y-1/2">
+        <div className="absolute right-4 top-1/2 -translate-y-1/2 flex items-center gap-4">
+             {showModelButton && (
+                <button 
+                    onClick={onShowModelModal}
+                    className="flex items-center gap-2 text-sm text-gray-300 hover:text-purple-300 transition-colors py-1 px-3 rounded-md hover:bg-gray-700/50"
+                    title="Definir modelo de história"
+                >
+                    <TemplateIcon className="w-5 h-5" />
+                    <span>Definir Modelo</span>
+                </button>
+            )}
             {showRestart && (
                 <button 
                     onClick={onRestart}
@@ -71,7 +81,7 @@ const FeaturesModal = ({ onClose }: { onClose: () => void; }) => (
             <div>
                 <h4 className="font-bold text-cyan-300">Geração de História</h4>
                 <ul className="list-disc list-inside space-y-1 mt-1">
-                    <li><span className="font-semibold">Modelo Opcional:</span> Forneça uma história como modelo para manter a consistência de formatação.</li>
+                    <li><span className="font-semibold">Modelo Global de História:</span> Defina um modelo de formatação que a IA usará para todas as histórias geradas na sessão.</li>
                     <li><span className="font-semibold">Revisão Humana:</span> Edite a história gerada pela IA antes de iniciar o refinamento.</li>
                 </ul>
             </div>
@@ -207,9 +217,8 @@ const StoryInput = ({ onStorySubmit }: { onStorySubmit: (story: ParsedStory) => 
     );
 };
 
-const GenerateStoryInput = ({ onGenerate }: { onGenerate: (requirements: string, modelStory: string) => void; }) => {
+const GenerateStoryInput = ({ onGenerate }: { onGenerate: (requirements: string) => void; }) => {
     const [requirements, setRequirements] = useState('');
-    const [modelStory, setModelStory] = useState('');
     const [error, setError] = useState('');
 
     const handleSubmit = () => {
@@ -218,7 +227,7 @@ const GenerateStoryInput = ({ onGenerate }: { onGenerate: (requirements: string,
             return;
         }
         setError('');
-        onGenerate(requirements, modelStory);
+        onGenerate(requirements);
     };
 
     return (
@@ -236,15 +245,6 @@ const GenerateStoryInput = ({ onGenerate }: { onGenerate: (requirements: string,
                     placeholder="Ex: Como usuário, quero poder redefinir minha senha através de um link enviado para meu e-mail para recuperar o acesso à minha conta."
                 />
                 {error && <p className="text-red-400 mt-2 text-sm">{error}</p>}
-
-                <label className="block mt-4 mb-2 text-sm font-medium text-gray-300" htmlFor="modelStory">História Modelo (Opcional)</label>
-                 <textarea
-                    id="modelStory"
-                    className="w-full h-32 p-3 bg-gray-900 border border-gray-700 rounded-md focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition text-gray-300 resize-y"
-                    value={modelStory}
-                    onChange={(e) => setModelStory(e.target.value)}
-                    placeholder="Cole uma história existente aqui para que a IA copie o formato e a estrutura."
-                />
 
                 <button
                     onClick={handleSubmit}
@@ -562,6 +562,38 @@ const StorySelectionScreen = ({ stories, onSelectStory }: { stories: SplitStory[
     </div>
 );
 
+const ModelStoryModal = ({ initialModel, onSave, onClose }: { initialModel: string; onSave: (model: string) => void; onClose: () => void; }) => {
+    const [currentModel, setCurrentModel] = useState(initialModel);
+
+    const handleSave = () => {
+        onSave(currentModel);
+        onClose();
+    };
+
+    return (
+        <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4" onClick={onClose}>
+            <div className="bg-gray-800 rounded-lg shadow-xl max-w-2xl w-full p-6 border border-gray-700 relative animate-fade-in-up" onClick={e => e.stopPropagation()}>
+                <div className="flex items-center gap-3 mb-4">
+                    <TemplateIcon className="w-8 h-8 text-cyan-300" />
+                    <h3 className="text-xl font-semibold text-purple-300">Definir Modelo de História Global</h3>
+                </div>
+                <p className="text-gray-400 mb-4 text-sm">Cole uma história de usuário aqui. A IA usará sua estrutura e formatação como modelo para todas as novas histórias geradas nesta sessão.</p>
+                <textarea
+                    value={currentModel}
+                    onChange={(e) => setCurrentModel(e.target.value)}
+                    rows={12}
+                    className="w-full p-2 bg-gray-900 border border-gray-700 rounded-md focus:ring-2 focus:ring-purple-500 transition text-gray-300 resize-y"
+                    placeholder="Cole a história modelo aqui..."
+                />
+                <div className="flex justify-end gap-3 mt-4">
+                    <button onClick={onClose} className="bg-gray-600 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded transition">Cancelar</button>
+                    <button onClick={handleSave} className="bg-purple-600 hover:bg-purple-700 text-white font-bold py-2 px-4 rounded transition">Salvar Modelo</button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
 
 const App: React.FC = () => {
     type AppState = 'home' | 'refining' | 'generating' | 'transcribing' | 'loading_generation' | 'loading_transcription' | 'reviewing' | 'configuring' | 'loading' | 'planning' | 'error' | 'analyzing_complexity' | 'story_selection';
@@ -586,6 +618,8 @@ const App: React.FC = () => {
     const [isAnalyzingComplexity, setIsAnalyzingComplexity] = useState(false);
     const [complexityAnalysis, setComplexityAnalysis] = useState<ComplexityAnalysisResult | null>(null);
     const [splitStories, setSplitStories] = useState<SplitStory[]>([]);
+    const [modelStory, setModelStory] = useState<string>('');
+    const [isModelStoryModalOpen, setIsModelStoryModalOpen] = useState(false);
     
     const conversationEndRef = useRef<HTMLDivElement>(null);
 
@@ -609,7 +643,7 @@ const App: React.FC = () => {
         setAppState('configuring');
     }, []);
 
-    const handleGenerateStory = useCallback(async (requirements: string, modelStory: string) => {
+    const handleGenerateStory = useCallback(async (requirements: string) => {
         setAppState('loading_generation');
         setError(null);
         try {
@@ -620,13 +654,13 @@ const App: React.FC = () => {
             setError(err instanceof Error ? err.message : 'Falha ao gerar a história.');
             setAppState('error');
         }
-    }, []);
+    }, [modelStory]);
 
      const handleTranscriptSubmit = useCallback(async (transcript: string) => {
         setAppState('loading_transcription');
         setError(null);
         try {
-            const generatedStories = await generateStoriesFromTranscript(transcript);
+            const generatedStories = await generateStoriesFromTranscript(transcript, modelStory);
             if (generatedStories.length === 0) {
                 setError('A IA não conseguiu gerar histórias a partir da transcrição fornecida. Tente com um texto mais detalhado.');
                 setAppState('transcribing');
@@ -638,7 +672,7 @@ const App: React.FC = () => {
             setError(err instanceof Error ? err.message : 'Falha ao analisar a transcrição.');
             setAppState('error');
         }
-    }, []);
+    }, [modelStory]);
 
     const handleReviewConfirm = useCallback(() => {
         if (!originalStory) return;
@@ -827,6 +861,7 @@ const App: React.FC = () => {
         setIsFeaturesModalOpen(false);
         setComplexityAnalysis(null);
         setIsAnalyzingComplexity(false);
+        setModelStory('');
     };
 
     const handleRestart = () => {
@@ -852,7 +887,8 @@ const App: React.FC = () => {
 
     const headerAction = isRefiningSplitStory ? handleBackToSelection : handleRestart;
     const headerText = isRefiningSplitStory ? 'Voltar para Seleção' : 'Recomeçar';
-    
+    const showModelButton = ['generating', 'transcribing', 'reviewing', 'planning', 'story_selection', 'configuring', 'refining'].includes(appState);
+
     if (appState === 'error') {
         return (
             <div className="flex flex-col items-center justify-center min-h-screen p-4 text-center">
@@ -1048,7 +1084,13 @@ const App: React.FC = () => {
 
     return (
         <div className="bg-gray-900 text-gray-200 min-h-screen font-sans">
-            <Header onRestart={headerAction} showRestart={appState !== 'home'} text={headerText} />
+            <Header 
+                onRestart={headerAction} 
+                showRestart={appState !== 'home'} 
+                text={headerText}
+                onShowModelModal={() => setIsModelStoryModalOpen(true)}
+                showModelButton={showModelButton}
+            />
             {renderContent()}
             {isOriginalStoryModalOpen && originalStory && (
                 <OriginalStoryModal 
@@ -1062,6 +1104,13 @@ const App: React.FC = () => {
                     result={complexityAnalysis} 
                     onClose={() => setComplexityAnalysis(null)}
                     onAcceptSplit={handleAcceptSplit}
+                />
+             )}
+             {isModelStoryModalOpen && (
+                <ModelStoryModal
+                    initialModel={modelStory}
+                    onClose={() => setIsModelStoryModalOpen(false)}
+                    onSave={(model) => setModelStory(model)}
                 />
              )}
         </div>
