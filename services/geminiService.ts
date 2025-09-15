@@ -532,7 +532,7 @@ export const generateGherkinFromConversation = async (featureDescription: string
             .join('\n\n');
 
         if (!history) {
-            return "Nenhum feedback fornecido. Responda a algumas perguntas para gerar o cenário.";
+            throw new Error("Nenhum feedback fornecido. Responda a algumas perguntas para gerar o cenário.");
         }
 
         const prompt = `
@@ -573,6 +573,9 @@ export const generateGherkinFromConversation = async (featureDescription: string
         return response.text.trim();
     } catch (error) {
         console.error("Error generating Gherkin scenario:", error);
+        if (error instanceof Error && error.message.startsWith("Nenhum feedback")) {
+            throw error;
+        }
         throw new Error("Falha ao gerar o cenário Gherkin.");
     }
 };
@@ -726,5 +729,79 @@ export const convertDocumentToBdd = async (document: string, featureTitle: strin
     } catch (error) {
         console.error("Error converting document to BDD:", error);
         throw new Error("Falha ao converter o documento para BDD.");
+    }
+};
+
+export const analyzePlanningTranscript = async (transcript: string, userStory: string): Promise<string> => {
+    try {
+        const prompt = `
+        Você é um Agile Coach Sênior, especialista em facilitar sessões de planning e garantir o alinhamento entre o PO e a equipe.
+        Sua tarefa é analisar a transcrição de uma reunião de planejamento e compará-la com a história de usuário fornecida.
+
+        **Transcrição da Reunião de Planejamento:**
+        ---
+        ${transcript}
+        ---
+
+        **História de Usuário para Validação:**
+        ---
+        ${userStory}
+        ---
+
+        **Instruções:**
+        1. Compare os dois textos e identifique discrepâncias e omissões.
+        2. Retorne uma análise textual clara e objetiva, formatada com os seguintes títulos:
+           - **Pontos da discussão não cobertos na história:** Liste aqui os requisitos, regras ou detalhes mencionados na reunião que parecem estar ausentes da história.
+           - **Possíveis contradições:** Destaque quaisquer pontos onde a história de usuário parece contradizer o que foi discutido na reunião.
+           - **Outros pontos de atenção relevantes:** Inclua quaisquer outras observações, como ambiguidades, dependências mencionadas ou riscos levantados, que o PO deveria considerar.
+
+        Se não encontrar pontos para uma categoria, indique "Nenhum ponto encontrado.".
+        Produza apenas a análise em português do Brasil, sem preâmbulo ou comentários extras.
+        `;
+
+        const response = await ai.models.generateContent({
+            model: model,
+            contents: prompt,
+        });
+
+        return response.text.trim();
+    } catch (error) {
+        console.error("Error analyzing planning transcript:", error);
+        throw new Error("Falha ao analisar a transcrição de planejamento.");
+    }
+};
+
+export const analyzeHomologationTranscript = async (transcript: string): Promise<string> => {
+    try {
+        const prompt = `
+        Você é um Analista de QA Sênior, especialista em interpretar feedback de usuários e identificar problemas.
+        Sua tarefa é analisar a transcrição de uma sessão de homologação/validação de uma funcionalidade.
+
+        **Transcrição da Sessão de Homologação:**
+        ---
+        ${transcript}
+        ---
+
+        **Instruções:**
+        1. Leia atentamente o feedback fornecido na transcrição.
+        2. Categorize cada ponto de feedback em uma das três listas a seguir:
+           - **Itens de Melhoria:** Sugestões para evoluir ou aprimorar a funcionalidade em iterações futuras. Não são bugs, mas oportunidades.
+           - **Defeitos Potenciais:** Feedbacks que indicam um comportamento inesperado, erro ou não aderência aos requisitos/critérios de aceitação.
+           - **Outros Pontos Relevantes:** Dúvidas gerais, comentários sobre usabilidade que não são defeitos, ou outros pontos que merecem atenção.
+        3. Formate a saída de forma clara usando as três categorias como títulos.
+
+        Se não encontrar pontos para uma categoria, indique "Nenhum ponto encontrado.".
+        Produza apenas a análise em português do Brasil, sem preâmbulo ou comentários extras.
+        `;
+
+        const response = await ai.models.generateContent({
+            model: model,
+            contents: prompt,
+        });
+
+        return response.text.trim();
+    } catch (error) {
+        console.error("Error analyzing homologation transcript:", error);
+        throw new Error("Falha ao analisar a transcrição de homologação.");
     }
 };

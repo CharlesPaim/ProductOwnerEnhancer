@@ -1,6 +1,7 @@
+
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { Persona, ParsedStory, RedmineIssue, ConversationTurn, ComplexityAnalysisResult, SplitStory, BddFeatureSuggestion } from './types';
-import { generateInitialQuestions, suggestNewStoryVersion, generateFollowUpQuestion, generateNewStory, refineSuggestedStory, generateTestScenarios, analyzeStoryComplexity, generateStoriesFromTranscript, generatePrototype, generateBddScenarios, generateBddFollowUpQuestion, generateGherkinFromConversation, generatePoChecklist, generateStepDefinitions, convertDocumentToBdd, analyzeAndBreakdownDocument } from './services/geminiService';
+import { generateInitialQuestions, suggestNewStoryVersion, generateFollowUpQuestion, generateNewStory, refineSuggestedStory, generateTestScenarios, analyzeStoryComplexity, generateStoriesFromTranscript, generatePrototype, generateBddScenarios, generateBddFollowUpQuestion, generateGherkinFromConversation, generatePoChecklist, generateStepDefinitions, convertDocumentToBdd, analyzeAndBreakdownDocument, analyzePlanningTranscript, analyzeHomologationTranscript } from './services/geminiService';
 import { personaDetails, UserIcon, BookOpenIcon, XIcon, MenuIcon, SparklesIcon, HomeIcon, ClipboardIcon, ClipboardCheckIcon, ClipboardListIcon, InformationCircleIcon, ScaleIcon, MicrophoneIcon, TemplateIcon, ViewBoardsIcon, DocumentTextIcon, CheckCircleIcon, PencilIcon, TrashIcon, CodeIcon, SwitchHorizontalIcon } from './components/icons';
 
 type BddScenario = {
@@ -15,6 +16,8 @@ type ConfirmationAction = {
     message: string;
     onConfirm: () => void;
 } | null;
+
+type TranscriptionMode = 'requirements' | 'planning' | 'homologation';
 
 const personaToKey = (p: Persona): string => {
     switch(p) {
@@ -78,7 +81,14 @@ const FeaturesModal = ({ onClose }: { onClose: () => void; }) => (
                 <ul className="list-disc list-inside space-y-1 mt-1">
                     <li><span className="font-semibold">Refinar História Existente:</span> Cole o JSON do Redmine ou o texto bruto de uma história para análise.</li>
                     <li><span className="font-semibold">Gerar Nova História:</span> Descreva requisitos para que a IA crie uma história do zero.</li>
-                    <li><span className="font-semibold">Analisar Transcrição de Reunião:</span> Cole a transcrição de uma reunião para que a IA gere propostas de histórias de usuário.</li>
+                    <li>
+                        <span className="font-semibold">Analisar Transcrição (Contextual):</span> Analise transcrições com objetivos específicos.
+                        <ul className="list-[circle] list-inside ml-4 mt-1 text-gray-400">
+                            <li><span className="font-semibold text-gray-300">Levantamento de Requisitos:</span> Gera novas histórias a partir da discussão.</li>
+                            <li><span className="font-semibold text-gray-300">Reunião de Planeamento:</span> Valida uma história existente contra o que foi discutido.</li>
+                            <li><span className="font-semibold text-gray-300">Sessão de Homologação:</span> Extrai feedback e pontos de ação.</li>
+                        </ul>
+                    </li>
                     <li><span className="font-semibold">Criar Feature BDD:</span> Guie a IA para criar um arquivo .feature completo a partir de uma descrição de alto nível.</li>
                     <li><span className="font-semibold">Converter Documento para BDD:</span> Cole um documento de requisitos tradicional para que a IA o analise, sugira uma quebra em features menores e o transforme em um arquivo .feature.</li>
                 </ul>
@@ -106,10 +116,12 @@ const FeaturesModal = ({ onClose }: { onClose: () => void; }) => (
                 </ul>
             </div>
              <div>
-                <h4 className="font-bold text-cyan-300">Ferramentas de Validação</h4>
+                <h4 className="font-bold text-cyan-300">Ferramentas de Validação e Suporte</h4>
                 <ul className="list-disc list-inside space-y-1 mt-1">
                     <li><span className="font-semibold">Geração de Cenários de Teste:</span> Gere cenários de teste (caminho feliz, casos de borda, negativos) para a versão atual da história a qualquer momento.</li>
                      <li><span className="font-semibold">Prototipagem Visual com IA:</span> Crie um protótipo visual (HTML/Tailwind CSS) a partir da história de usuário para acelerar o alinhamento.</li>
+                     <li><span className="font-semibold">Checklist de Pré-Homologação (BDD):</span> Gere um roteiro de teste em linguagem natural para o PO validar a entrega a partir do arquivo .feature.</li>
+                     <li><span className="font-semibold">Esqueletos de Steps (BDD):</span> Gere o código-esqueleto das Step Definitions (JS, Python, Java, PHP, C#) para acelerar a automação de testes.</li>
                 </ul>
             </div>
             <div>
@@ -126,7 +138,7 @@ const FeaturesModal = ({ onClose }: { onClose: () => void; }) => (
 );
 
 
-const HomeScreen = ({ onChoice, onShowFeatures, onShowModelModal, onShowPrototypeModal }: { onChoice: (choice: 'refining' | 'generating' | 'transcribing' | 'bdd_input' | 'bdd_converting_doc_input') => void; onShowFeatures: () => void; onShowModelModal: () => void; onShowPrototypeModal: () => void; }) => (
+const HomeScreen = ({ onChoice, onShowFeatures, onShowModelModal, onShowPrototypeModal }: { onChoice: (choice: 'refining' | 'generating' | 'transcribing_context' | 'bdd_input' | 'bdd_converting_doc_input') => void; onShowFeatures: () => void; onShowModelModal: () => void; onShowPrototypeModal: () => void; }) => (
     <div className="flex flex-col items-center justify-center min-h-screen p-4 -mt-20">
         <div className="w-full max-w-4xl bg-gray-800 rounded-lg shadow-xl p-6 text-center relative">
              <button 
@@ -155,7 +167,7 @@ const HomeScreen = ({ onChoice, onShowFeatures, onShowModelModal, onShowPrototyp
                      <p className="text-sm font-normal text-gray-400 mt-1">Descreva os requisitos para a IA criar uma história.</p>
                 </button>
                 <button
-                    onClick={() => onChoice('transcribing')}
+                    onClick={() => onChoice('transcribing_context')}
                     className="flex flex-col items-center justify-center bg-gray-700 hover:bg-gray-600 text-white font-bold py-6 px-6 rounded-md transition-transform transform hover:scale-105"
                 >
                     <MicrophoneIcon className="w-8 h-8 mx-auto mb-2 text-green-300" />
@@ -297,43 +309,206 @@ const GenerateStoryInput = ({ onGenerate }: { onGenerate: (requirements: string)
     );
 };
 
-const TranscriptionInput = ({ onTranscriptSubmit }: { onTranscriptSubmit: (transcript: string) => void; }) => {
+const TranscriptionContextScreen = ({ onSelect }: { onSelect: (mode: TranscriptionMode) => void }) => (
+    <div className="flex flex-col items-center justify-center min-h-screen p-4 -mt-20">
+        <div className="w-full max-w-2xl bg-gray-800 rounded-lg shadow-xl p-6 text-center">
+            <h2 className="text-xl font-semibold mb-6 text-gray-200">Qual é o objetivo da análise desta transcrição?</h2>
+            <div className="space-y-4">
+                <button
+                    onClick={() => onSelect('requirements')}
+                    className="w-full text-left bg-gray-700 hover:bg-gray-600 text-white p-4 rounded-md transition-colors"
+                >
+                    <h3 className="font-bold text-cyan-300">Levantamento de Requisitos</h3>
+                    <p className="text-sm text-gray-400 mt-1">Gerar novas histórias de usuário a partir da discussão.</p>
+                </button>
+                <button
+                    onClick={() => onSelect('planning')}
+                    className="w-full text-left bg-gray-700 hover:bg-gray-600 text-white p-4 rounded-md transition-colors"
+                >
+                    <h3 className="font-bold text-cyan-300">Reunião de Planeamento</h3>
+                    <p className="text-sm text-gray-400 mt-1">Validar uma história de usuário existente contra o que foi discutido.</p>
+                </button>
+                <button
+                    onClick={() => onSelect('homologation')}
+                    className="w-full text-left bg-gray-700 hover:bg-gray-600 text-white p-4 rounded-md transition-colors"
+                >
+                    <h3 className="font-bold text-cyan-300">Sessão de Homologação</h3>
+                    <p className="text-sm text-gray-400 mt-1">Extrair feedback e pontos de ação da discussão.</p>
+                </button>
+            </div>
+        </div>
+    </div>
+);
+
+const TranscriptionInputScreen = ({ 
+    mode, 
+    onRequirementsSubmit,
+    onPlanningSubmit,
+    onHomologationSubmit
+}: { 
+    mode: TranscriptionMode | null;
+    onRequirementsSubmit: (transcript: string) => void;
+    onPlanningSubmit: (transcript: string, story: string) => void;
+    onHomologationSubmit: (transcript: string) => void;
+}) => {
     const [transcript, setTranscript] = useState('');
-    const [error, setError] = useState('');
+    const [storyToValidate, setStoryToValidate] = useState('');
+    const [transcriptError, setTranscriptError] = useState('');
+    const [storyError, setStoryError] = useState('');
+
+    if (!mode) return null;
+
+    const titles = {
+        requirements: "Analisar Transcrição: Levantamento de Requisitos",
+        planning: "Analisar Transcrição: Reunião de Planeamento",
+        homologation: "Analisar Transcrição: Sessão de Homologação",
+    };
+
+    const descriptions = {
+        requirements: "Cole o texto bruto da transcrição e a IA irá identificar temas e sugerir histórias de usuário.",
+        planning: "Forneça a transcrição da reunião e a história de usuário que foi discutida para validação.",
+        homologation: "Cole a transcrição da sessão de validação para extrair feedbacks e próximos passos.",
+    };
 
     const handleSubmit = () => {
+        let hasError = false;
+        setTranscriptError('');
+        setStoryError('');
+
         if (!transcript.trim()) {
-            setError('Por favor, cole a transcrição da reunião.');
-            return;
+            setTranscriptError('O campo de transcrição não pode estar vazio.');
+            hasError = true;
         }
-        setError('');
-        onTranscriptSubmit(transcript);
+        
+        if (mode === 'planning' && !storyToValidate.trim()) {
+            setStoryError('O campo da história de usuário não pode estar vazio.');
+            hasError = true;
+        }
+
+        if (hasError) return;
+
+        if (mode === 'requirements') {
+            onRequirementsSubmit(transcript);
+        } else if (mode === 'planning') {
+            onPlanningSubmit(transcript, storyToValidate);
+        } else if (mode === 'homologation') {
+            onHomologationSubmit(transcript);
+        }
+    };
+    
+    const renderSingleTextarea = (
+        title: string, 
+        placeholder: string,
+        value: string,
+        onChange: (e: React.ChangeEvent<HTMLTextAreaElement>) => void,
+        error: string,
+        id: string = "transcript"
+    ) => (
+        <>
+            <label className="block mb-2 text-sm font-medium text-gray-300" htmlFor={id}>{title}</label>
+            <textarea
+                id={id}
+                className="w-full h-80 p-3 bg-gray-900 border border-gray-700 rounded-md focus:ring-2 focus:ring-purple-500 transition text-gray-300 resize-y"
+                value={value}
+                onChange={onChange}
+                placeholder={placeholder}
+            />
+            {error && <p className="text-red-400 mt-2 text-sm">{error}</p>}
+        </>
+    );
+
+    const buttonTexts = {
+        requirements: 'Analisar e Gerar Histórias',
+        planning: 'Analisar e Validar História',
+        homologation: 'Analisar Feedback',
     };
 
     return (
         <div className="flex flex-col items-center justify-center min-h-screen p-4 -mt-20">
-            <div className="w-full max-w-3xl bg-gray-800 rounded-lg shadow-xl p-6">
-                <h2 className="text-xl font-semibold mb-2 text-gray-200">Analisar Transcrição de Reunião</h2>
-                <p className="text-gray-400 mb-4 text-sm">Cole o texto bruto da transcrição e a IA irá identificar temas e sugerir histórias de usuário.</p>
+            <div className="w-full max-w-4xl bg-gray-800 rounded-lg shadow-xl p-6">
+                <h2 className="text-xl font-semibold mb-2 text-gray-200">{titles[mode]}</h2>
+                <p className="text-gray-400 mb-4 text-sm">{descriptions[mode]}</p>
                 
-                <textarea
-                    className="w-full h-80 p-3 bg-gray-900 border border-gray-700 rounded-md focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition text-gray-300 resize-y"
-                    value={transcript}
-                    onChange={(e) => setTranscript(e.target.value)}
-                    placeholder="Cole a transcrição completa aqui..."
-                />
-                {error && <p className="text-red-400 mt-2 text-sm">{error}</p>}
+                {mode === 'planning' ? (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div>
+                            {renderSingleTextarea(
+                                "Transcrição do Planeamento",
+                                "Cole a transcrição completa aqui...",
+                                transcript,
+                                (e) => setTranscript(e.target.value),
+                                transcriptError
+                            )}
+                        </div>
+                        <div>
+                             {renderSingleTextarea(
+                                "História de Usuário a ser Validada",
+                                "Cole a história de usuário (título e descrição) aqui...",
+                                storyToValidate,
+                                (e) => setStoryToValidate(e.target.value),
+                                storyError,
+                                "story"
+                            )}
+                        </div>
+                    </div>
+                ) : (
+                    renderSingleTextarea(
+                        mode === 'requirements' ? 'Transcrição da Reunião' : 'Transcrição da Homologação',
+                        "Cole a transcrição completa aqui...",
+                        transcript,
+                        (e) => setTranscript(e.target.value),
+                        transcriptError
+                    )
+                )}
                 
                 <button
                     onClick={handleSubmit}
+                    title={"Analisar Transcrição"}
                     className="mt-6 w-full bg-purple-600 hover:bg-purple-700 text-white font-bold py-2 px-4 rounded-md transition-transform transform hover:scale-105"
                 >
-                    Analisar e Gerar Histórias
+                    {mode ? buttonTexts[mode] : 'Analisar'}
                 </button>
             </div>
         </div>
     );
 };
+
+const TranscriptionReviewScreen = ({ mode, result, onBack, onCopy }: { mode: TranscriptionMode | null; result: string; onBack: () => void; onCopy: (text: string) => void; }) => {
+    if (!mode) return null;
+
+    const titles = {
+        requirements: "Histórias Geradas da Transcrição",
+        planning: "Análise da Reunião de Planeamento",
+        homologation: "Análise da Sessão de Homologação",
+    };
+    const [copied, setCopied] = useState(false);
+
+    const handleCopy = () => {
+        onCopy(result);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+    }
+
+    return (
+        <div className="flex flex-col items-center justify-center min-h-screen p-4 -mt-20">
+            <div className="w-full max-w-4xl bg-gray-800 rounded-lg shadow-xl p-6">
+                <div className="flex justify-between items-center mb-4">
+                    <h2 className="text-xl font-semibold text-purple-300">{titles[mode]}</h2>
+                    <button onClick={handleCopy} title="Copiar Análise" className="text-gray-400 hover:text-white transition">
+                        {copied ? <ClipboardCheckIcon className="w-5 h-5 text-green-400" /> : <ClipboardIcon className="w-5 h-5" />}
+                    </button>
+                </div>
+                <div className="max-h-[70vh] overflow-y-auto pr-2">
+                    <pre className="text-sm text-gray-300 whitespace-pre-wrap font-sans bg-gray-900/50 p-4 rounded-md">{result}</pre>
+                </div>
+                <div className="flex justify-end mt-6">
+                    <button onClick={onBack} className="bg-gray-600 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded">Analisar Outra Transcrição</button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
 
 const ReviewGeneratedStory = ({ story, onConfirm, onEdit }: { story: ParsedStory; onConfirm: () => void; onEdit: (story: ParsedStory) => void; }) => {
     return (
@@ -730,7 +905,7 @@ const ConfirmationModal = ({ action, onClose }: { action: ConfirmationAction; on
 
 
 const App: React.FC = () => {
-    type AppState = 'home' | 'refining' | 'generating' | 'transcribing' | 'bdd_input' | 'bdd_scenarios' | 'bdd_review' | 'bdd_converting_doc_input' | 'bdd_breakdown_review' | 'bdd_feature_selection' | 'bdd_converting_doc_review' | 'loading_generation' | 'loading_transcription' | 'loading_bdd_scenarios' | 'loading_bdd_breakdown' | 'loading_bdd_conversion' | 'reviewing' | 'configuring' | 'loading' | 'planning' | 'error' | 'analyzing_complexity' | 'story_selection';
+    type AppState = 'home' | 'refining' | 'generating' | 'transcribing_context' | 'transcribing_input' | 'transcribing_review' | 'bdd_input' | 'bdd_scenarios' | 'bdd_review' | 'bdd_converting_doc_input' | 'bdd_breakdown_review' | 'bdd_feature_selection' | 'bdd_converting_doc_review' | 'loading_generation' | 'loading_transcription' | 'loading_bdd_scenarios' | 'loading_bdd_breakdown' | 'loading_bdd_conversion' | 'reviewing' | 'configuring' | 'loading' | 'planning' | 'error' | 'analyzing_complexity' | 'story_selection';
     const [appState, setAppState] = useState<AppState>('home');
 
     // Story refinement state
@@ -738,6 +913,11 @@ const App: React.FC = () => {
     const [suggestedStory, setSuggestedStory] = useState<string | null>(null);
     const [splitStories, setSplitStories] = useState<SplitStory[]>([]);
     const [complexityAnalysis, setComplexityAnalysis] = useState<ComplexityAnalysisResult | null>(null);
+    
+    // Transcription state
+    const [transcriptionMode, setTranscriptionMode] = useState<TranscriptionMode | null>(null);
+    const [transcriptionAnalysisResult, setTranscriptionAnalysisResult] = useState<string | null>(null);
+
 
     // BDD state
     const [planningMode, setPlanningMode] = useState<'story' | 'bdd'>('story');
@@ -751,6 +931,8 @@ const App: React.FC = () => {
     const [documentToConvert, setDocumentToConvert] = useState('');
     const [featureSuggestions, setFeatureSuggestions] = useState<BddFeatureSuggestion[]>([]);
     const [convertedFeatureFile, setConvertedFeatureFile] = useState('');
+    const [poChecklistCache, setPoChecklistCache] = useState<{ featureContent: string; checklist: string; } | null>(null);
+    const [stepDefCache, setStepDefCache] = useState<{ featureContent: string; technology: string; steps: string; } | null>(null);
 
     // Shared planning state
     const [activePersonas, setActivePersonas] = useState<Persona[]>([]);
@@ -824,14 +1006,14 @@ const App: React.FC = () => {
         }
     }, [modelStory]);
 
-     const handleTranscriptSubmit = useCallback(async (transcript: string) => {
+     const handleRequirementsTranscriptSubmit = useCallback(async (transcript: string) => {
         setAppState('loading_transcription');
         setError(null);
         try {
             const generatedStories = await generateStoriesFromTranscript(transcript, modelStory);
             if (generatedStories.length === 0) {
                 setError('A IA não conseguiu gerar histórias a partir da transcrição fornecida. Tente com um texto mais detalhado.');
-                setAppState('transcribing');
+                setAppState('transcribing_input');
                 return;
             }
             setSplitStories(generatedStories);
@@ -841,6 +1023,37 @@ const App: React.FC = () => {
             setAppState('error');
         }
     }, [modelStory]);
+
+    const handlePlanningTranscriptSubmit = useCallback(async (transcript: string, storyToValidate: string) => {
+        setAppState('loading_transcription');
+        setError(null);
+        try {
+            const result = await analyzePlanningTranscript(transcript, storyToValidate);
+            setTranscriptionAnalysisResult(result);
+            setAppState('transcribing_review');
+        } catch (err) {
+            setError(err instanceof Error ? err.message : 'Falha ao analisar a transcrição.');
+            setAppState('transcribing_input');
+        }
+    }, []);
+
+    const handleHomologationTranscriptSubmit = useCallback(async (transcript: string) => {
+        setAppState('loading_transcription');
+        setError(null);
+        try {
+            const result = await analyzeHomologationTranscript(transcript);
+            setTranscriptionAnalysisResult(result);
+            setAppState('transcribing_review');
+        } catch (err) {
+            setError(err instanceof Error ? err.message : 'Falha ao analisar a transcrição.');
+            setAppState('transcribing_input');
+        }
+    }, []);
+
+    const handleTranscriptionContextSelect = (mode: TranscriptionMode) => {
+        setTranscriptionMode(mode);
+        setAppState('transcribing_input');
+    };
 
     const handleFeatureSubmit = useCallback(async (description: string) => {
         setAppState('loading_bdd_scenarios');
@@ -1125,21 +1338,33 @@ const App: React.FC = () => {
     }, [originalStory, suggestedStory, prototypeModel, localPrototypeModel]);
 
     const handleGeneratePoChecklist = useCallback(async (featureFileContent: string) => {
+        if (poChecklistCache && poChecklistCache.featureContent === featureFileContent) {
+            setPoChecklistContent(poChecklistCache.checklist);
+            setIsPoChecklistModalOpen(true);
+            return;
+        }
         setIsGeneratingChecklist(true);
         setPoChecklistContent(null);
         setError(null);
         try {
             const checklist = await generatePoChecklist(featureFileContent);
             setPoChecklistContent(checklist);
+            setPoChecklistCache({ featureContent: featureFileContent, checklist });
             setIsPoChecklistModalOpen(true);
         } catch (err) {
             setError(err instanceof Error ? err.message : 'Falha ao gerar o checklist.');
         } finally {
             setIsGeneratingChecklist(false);
         }
-    }, []);
+    }, [poChecklistCache]);
 
     const handleGenerateStepDefs = useCallback(async (featureFileContent: string) => {
+        if (stepDefCache && stepDefCache.featureContent === featureFileContent && stepDefCache.technology === selectedTechnology) {
+            setStepDefContent(stepDefCache.steps);
+            setIsStepDefModalOpen(true);
+            setIsTechSelectionModalOpen(false);
+            return;
+        }
         setIsTechSelectionModalOpen(false);
         setIsGeneratingSteps(true);
         setStepDefContent(null);
@@ -1147,13 +1372,14 @@ const App: React.FC = () => {
         try {
             const steps = await generateStepDefinitions(featureFileContent, selectedTechnology);
             setStepDefContent(steps);
+            setStepDefCache({ featureContent: featureFileContent, technology: selectedTechnology, steps });
             setIsStepDefModalOpen(true);
         } catch (err) {
             setError(err instanceof Error ? err.message : 'Falha ao gerar os steps.');
         } finally {
             setIsGeneratingSteps(false);
         }
-    }, [selectedTechnology]);
+    }, [selectedTechnology, stepDefCache]);
 
     const handleAcceptSplit = useCallback(() => {
         if (complexityAnalysis?.suggestedStories) {
@@ -1187,6 +1413,8 @@ const App: React.FC = () => {
         setSuggestedStory(null);
         setSplitStories([]);
         setComplexityAnalysis(null);
+        setTranscriptionMode(null);
+        setTranscriptionAnalysisResult(null);
         setPlanningMode('story');
         setFeatureDescription('');
         setBddScenarios([]);
@@ -1227,6 +1455,8 @@ const App: React.FC = () => {
         setIsPrototypeModelModalOpen(false);
         setSuggestedPrototype(null);
         setConfirmationAction(null);
+        setPoChecklistCache(null);
+        setStepDefCache(null);
     };
 
     const handleRestart = () => {
@@ -1297,8 +1527,24 @@ const App: React.FC = () => {
                 return <StoryInput onStorySubmit={handleStorySubmit} />;
             case 'generating':
                 return <GenerateStoryInput onGenerate={handleGenerateStory} />;
-            case 'transcribing':
-                return <TranscriptionInput onTranscriptSubmit={handleTranscriptSubmit} />;
+            case 'transcribing_context':
+                return <TranscriptionContextScreen onSelect={handleTranscriptionContextSelect} />;
+            case 'transcribing_input':
+                return <TranscriptionInputScreen
+                            mode={transcriptionMode}
+                            onRequirementsSubmit={handleRequirementsTranscriptSubmit}
+                            onPlanningSubmit={handlePlanningTranscriptSubmit}
+                            onHomologationSubmit={handleHomologationTranscriptSubmit}
+                        />;
+            case 'transcribing_review':
+                return transcriptionAnalysisResult && (
+                    <TranscriptionReviewScreen 
+                        mode={transcriptionMode} 
+                        result={transcriptionAnalysisResult} 
+                        onBack={() => setAppState('transcribing_context')} 
+                        onCopy={handleCopy} 
+                    />
+                );
             case 'bdd_input':
                 return (
                     <div className="flex flex-col items-center justify-center min-h-screen p-4 -mt-20">
@@ -1548,7 +1794,12 @@ const App: React.FC = () => {
             case 'loading_generation':
                 return <div className="h-screen -mt-20"><Loader text="A IA está gerando sua história..." /></div>;
             case 'loading_transcription':
-                return <div className="h-screen -mt-20"><Loader text="A IA está analisando a transcrição e gerando histórias..." /></div>;
+                const loadingTexts = {
+                    requirements: "A IA está analisando a transcrição e gerando histórias...",
+                    planning: "O Agile Coach da IA está analisando a transcrição e a história...",
+                    homologation: "O Analista de QA Sênior da IA está analisando o feedback...",
+                };
+                return <div className="h-screen -mt-20"><Loader text={loadingTexts[transcriptionMode || 'requirements']} /></div>;
              case 'loading_bdd_scenarios':
                 return <div className="h-screen -mt-20"><Loader text="A IA está fazendo um brainstorm de cenários..." /></div>;
              case 'loading_bdd_breakdown':
@@ -1825,6 +2076,8 @@ const App: React.FC = () => {
                             <option>JavaScript - Cypress</option>
                             <option>Python - Behave</option>
                             <option>Java - Cucumber</option>
+                            <option>PHP</option>
+                            <option>C#</option>
                         </select>
                         <div className="flex justify-end gap-3 mt-4">
                             <button onClick={() => setIsTechSelectionModalOpen(false)} className="bg-gray-600 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded transition">Cancelar</button>
