@@ -974,6 +974,7 @@ const App: React.FC = () => {
     const [complexityCache, setComplexityCache] = useState<{ description: string; result: ComplexityAnalysisResult; } | null>(null);
     const [testScenariosCache, setTestScenariosCache] = useState<{ description: string; scenarios: string; } | null>(null);
     const [prototypeCache, setPrototypeCache] = useState<{ description: string; model: string; prototype: string; } | null>(null);
+    const [gherkinCache, setGherkinCache] = useState<{ conversation: ConversationTurn[]; gherkin: string; } | null>(null);
 
     const conversationEndRef = useRef<HTMLDivElement>(null);
 
@@ -1127,6 +1128,7 @@ const App: React.FC = () => {
     }, [convertedFeatureFile]);
 
     const handleDetailScenario = useCallback((index: number) => {
+        setGherkinCache(null);
         setCurrentScenarioIndex(index);
         const scenario = bddScenarios[index];
         setOriginalStory({ title: scenario.title, description: `Este é um cenário para a funcionalidade: "${featureDescription}"` });
@@ -1184,6 +1186,7 @@ const App: React.FC = () => {
         if (!contextStory || activePersonas.length === 0) return;
 
         setIsAnswering(true);
+        setGherkinCache(null);
         
         const updatedConversation = conversation.map((turn, index) => 
             index === conversation.length - 1 ? { ...turn, answer } : turn
@@ -1267,21 +1270,34 @@ const App: React.FC = () => {
 
     const handleGenerateGherkin = useCallback(async () => {
         if (planningMode !== 'bdd' || currentScenarioIndex === null || conversation.length === 0) return;
+        
+        const lastTurn = conversation[conversation.length - 1];
+        const convForGherkin = lastTurn.answer ? conversation : conversation.slice(0, -1);
+
+        if (convForGherkin.length === 0) {
+            setError("Responda a pelo menos uma pergunta para gerar o Gherkin.");
+            return;
+        }
+        
+        if (gherkinCache && JSON.stringify(gherkinCache.conversation) === JSON.stringify(convForGherkin)) {
+            setGeneratedGherkin(gherkinCache.gherkin);
+            return;
+        }
+
         setIsGeneratingGherkin(true);
         setGeneratedGherkin(null);
         setError(null);
         try {
             const scenario = bddScenarios[currentScenarioIndex];
-            const lastTurn = conversation[conversation.length - 1];
-            const convForGherkin = lastTurn.answer ? conversation : conversation.slice(0, -1);
             const gherkin = await generateGherkinFromConversation(featureDescription, scenario.title, convForGherkin);
             setGeneratedGherkin(gherkin);
+            setGherkinCache({ conversation: convForGherkin, gherkin });
         } catch (err) {
              setError(err instanceof Error ? err.message : 'Falha ao gerar o Gherkin.');
         } finally {
             setIsGeneratingGherkin(false);
         }
-    }, [planningMode, currentScenarioIndex, conversation, featureDescription, bddScenarios]);
+    }, [planningMode, currentScenarioIndex, conversation, featureDescription, bddScenarios, gherkinCache]);
 
     const handleCompleteScenario = useCallback(() => {
         if (currentScenarioIndex === null || !generatedGherkin) return;
@@ -1500,6 +1516,7 @@ const App: React.FC = () => {
         setComplexityCache(null);
         setTestScenariosCache(null);
         setPrototypeCache(null);
+        setGherkinCache(null);
     };
 
     const handleRestart = () => {
