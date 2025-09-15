@@ -444,3 +444,202 @@ export const generatePrototype = async (storyDescription: string, modelPrototype
         throw new Error("Falha ao gerar o protótipo visual.");
     }
 };
+
+export const generateBddScenarios = async (featureDescription: string): Promise<string[]> => {
+    try {
+        const prompt = `
+        Você é um especialista em Behavior-Driven Development (BDD).
+        Sua tarefa é analisar a descrição de uma funcionalidade e sugerir uma lista de títulos de cenários de teste.
+        Foque em cenários de sucesso, de falha e de casos de borda.
+
+        **Descrição da Funcionalidade:**
+        ---
+        ${featureDescription}
+        ---
+
+        Gere uma lista de títulos de cenários concisos e descritivos.
+        Retorne um array de strings JSON, em português do Brasil.
+        `;
+
+        const responseSchema = {
+            type: Type.ARRAY,
+            items: { type: Type.STRING }
+        };
+
+        const response = await ai.models.generateContent({
+            model: model,
+            contents: prompt,
+            config: {
+                responseMimeType: "application/json",
+                responseSchema,
+            },
+        });
+
+        const jsonString = response.text;
+        return JSON.parse(jsonString) as string[];
+
+    } catch (error) {
+        console.error("Error generating BDD scenarios:", error);
+        throw new Error("Falha ao gerar os cenários BDD.");
+    }
+};
+
+export const generateBddFollowUpQuestion = async (featureDescription: string, scenarioTitle: string, conversationHistory: ConversationTurn[], nextPersona: Persona): Promise<string> => {
+    try {
+        const history = conversationHistory.map(turn =>
+            `Pergunta de ${turn.persona}: ${turn.question}\nResposta do Usuário: ${turn.answer || 'Pulado'}`
+        ).join('\n\n');
+
+        const prompt = `
+        Você está em uma sessão de BDD para detalhar um cenário de teste. Você está atuando como um(a) **${nextPersona}**.
+        O objetivo é extrair os detalhes para construir um cenário Gherkin completo (Dado, Quando, Então).
+
+        **Sua Diretriz como ${nextPersona}:**
+        ${personaGuidelines[nextPersona]}
+        Lembre-se de focar em perguntas que ajudem a definir o contexto inicial (Dado), a ação do usuário (Quando) e o resultado esperado (Então).
+
+        **Funcionalidade:** ${featureDescription}
+        **Cenário em Discussão:** ${scenarioTitle}
+
+        **Conversa até agora:**
+        ---
+        ${history}
+        ---
+
+        Com base na sua diretriz, na funcionalidade, no cenário e na conversa, formule sua próxima pergunta.
+        A pergunta deve ser concisa e focada em esclarecer um aspecto do comportamento esperado.
+        Retorne apenas a pergunta como uma única string, em português do Brasil, sem nenhum preâmbulo.
+        `;
+
+        const response = await ai.models.generateContent({
+            model: model,
+            contents: prompt,
+        });
+
+        return response.text.trim();
+
+    } catch (error) {
+        console.error("Error generating BDD follow-up question:", error);
+        throw new Error("Falha ao gerar uma pergunta de acompanhamento para BDD.");
+    }
+};
+
+export const generateGherkinFromConversation = async (featureDescription: string, scenarioTitle: string, conversation: ConversationTurn[]): Promise<string> => {
+    try {
+        const history = conversation
+            .filter(turn => turn.answer && turn.answer.trim() !== 'Pulado')
+            .map(turn => `Pergunta de ${turn.persona}: ${turn.question}\nResposta do Usuário: ${turn.answer}`)
+            .join('\n\n');
+
+        if (!history) {
+            return "Nenhum feedback fornecido. Responda a algumas perguntas para gerar o cenário.";
+        }
+
+        const prompt = `
+        Você é um especialista em BDD e Gherkin.
+        Sua tarefa é escrever um cenário Gherkin completo e bem formatado com base em uma discussão.
+
+        **Funcionalidade Principal:**
+        ---
+        ${featureDescription}
+        ---
+
+        **Título do Cenário:**
+        ---
+        ${scenarioTitle}
+        ---
+
+        **Registro da Discussão (Perguntas e Respostas):**
+        ---
+        ${history}
+        ---
+
+        Com base nas informações, escreva um cenário Gherkin.
+        - Comece com 'Cenário: [Título do Cenário]'.
+        - Use 'Dado' para o contexto/precondições.
+        - Use 'Quando' para a ação principal.
+        - Use 'Então' para o resultado/verificação.
+        - Use 'E' para continuar os passos de Dado, Quando ou Então, se necessário.
+        - Seja claro e use a linguagem do domínio do negócio, conforme extraído da conversa.
+
+        Produza apenas o bloco de texto Gherkin para este cenário, em português do Brasil. Não inclua a 'Feature:' nem comentários extras.
+        `;
+
+        const response = await ai.models.generateContent({
+            model: model,
+            contents: prompt,
+        });
+
+        return response.text.trim();
+    } catch (error) {
+        console.error("Error generating Gherkin scenario:", error);
+        throw new Error("Falha ao gerar o cenário Gherkin.");
+    }
+};
+
+export const generatePoChecklist = async (featureFileContent: string): Promise<string> => {
+    try {
+        const prompt = `
+        Você é um Product Owner experiente.
+        Sua tarefa é ler o seguinte arquivo .feature e traduzir cada cenário em um roteiro de teste em linguagem natural, claro e passo a passo.
+        Este roteiro será usado por um PO para realizar a validação funcional (pré-homologação) da entrega.
+
+        **Arquivo .feature para Análise:**
+        ---
+        ${featureFileContent}
+        ---
+
+        **Instruções:**
+        1. Para cada 'Cenário', crie um item de checklist com um título claro.
+        2. Descreva os passos de forma imperativa e simples (ex: "Acesse a tela de login", "Preencha o campo 'email' com 'teste@teste.com'", "Clique no botão 'Entrar'").
+        3. Converta os passos 'Dado', 'Quando' e 'Então' em ações e verificações concretas e observáveis.
+        4. O resultado deve ser um checklist formatado, fácil de ler e seguir por alguém sem conhecimento técnico.
+
+        Produza apenas o checklist em português do Brasil. Não inclua comentários extras, preâmbulo ou despedida.
+        `;
+
+        const response = await ai.models.generateContent({
+            model: model,
+            contents: prompt,
+        });
+
+        return response.text.trim();
+    } catch (error) {
+        console.error("Error generating PO checklist:", error);
+        throw new Error("Falha ao gerar o checklist de pré-homologação.");
+    }
+};
+
+export const generateStepDefinitions = async (featureFileContent: string, technology: string): Promise<string> => {
+    try {
+        const prompt = `
+        Você é um Desenvolvedor Sênior especialista em automação de testes e BDD.
+        Sua tarefa é ler o seguinte arquivo .feature e gerar o código "esqueleto" das Step Definitions para a tecnologia especificada.
+
+        **Tecnologia Alvo:** ${technology}
+
+        **Arquivo .feature para Análise:**
+        ---
+        ${featureFileContent}
+        ---
+
+        **Instruções:**
+        1. Analise o arquivo .feature e identifique todos os passos únicos (Dado, Quando, Então, E).
+        2. Para cada passo único, gere a função/método correspondente na sintaxe correta para '${technology}'.
+        3. Use expressões regulares apropriadas para capturar parâmetros nos passos (ex: valores entre aspas ou números).
+        4. Deixe o corpo das funções/métodos vazio ou com um comentário indicando que a implementação está pendente (ex: 'pass' em Python, '// Write code here that turns the phrase above into concrete actions' em Java/JS).
+
+        Produza apenas o bloco de código com os esqueletos das Step Definitions, em português do Brasil. Não inclua explicações, comentários extras ou as tags de formatação de código (como \`\`\`javascript).
+        `;
+
+        const response = await ai.models.generateContent({
+            model: model,
+            contents: prompt,
+        });
+
+        return response.text.trim();
+    } catch (error) {
+        console.error("Error generating step definitions:", error);
+        throw new Error("Falha ao gerar os esqueletos de steps.");
+    }
+};

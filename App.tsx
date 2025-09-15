@@ -1,7 +1,14 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { Persona, ParsedStory, RedmineIssue, ConversationTurn, ComplexityAnalysisResult, SplitStory } from './types';
-import { generateInitialQuestions, suggestNewStoryVersion, generateFollowUpQuestion, generateNewStory, refineSuggestedStory, generateTestScenarios, analyzeStoryComplexity, generateStoriesFromTranscript, generatePrototype } from './services/geminiService';
-import { personaDetails, UserIcon, BookOpenIcon, XIcon, MenuIcon, SparklesIcon, HomeIcon, ClipboardIcon, ClipboardCheckIcon, ClipboardListIcon, InformationCircleIcon, ScaleIcon, MicrophoneIcon, TemplateIcon, ViewBoardsIcon } from './components/icons';
+import { generateInitialQuestions, suggestNewStoryVersion, generateFollowUpQuestion, generateNewStory, refineSuggestedStory, generateTestScenarios, analyzeStoryComplexity, generateStoriesFromTranscript, generatePrototype, generateBddScenarios, generateBddFollowUpQuestion, generateGherkinFromConversation, generatePoChecklist, generateStepDefinitions } from './services/geminiService';
+import { personaDetails, UserIcon, BookOpenIcon, XIcon, MenuIcon, SparklesIcon, HomeIcon, ClipboardIcon, ClipboardCheckIcon, ClipboardListIcon, InformationCircleIcon, ScaleIcon, MicrophoneIcon, TemplateIcon, ViewBoardsIcon, DocumentTextIcon, CheckCircleIcon, PencilIcon, TrashIcon, CodeIcon } from './components/icons';
+
+type BddScenario = {
+    id: number;
+    title: string;
+    gherkin: string | null;
+    completed: boolean;
+};
 
 const personaToKey = (p: Persona): string => {
     switch(p) {
@@ -66,6 +73,7 @@ const FeaturesModal = ({ onClose }: { onClose: () => void; }) => (
                     <li><span className="font-semibold">Refinar História Existente:</span> Cole o JSON do Redmine ou o texto bruto de uma história para análise.</li>
                     <li><span className="font-semibold">Gerar Nova História:</span> Descreva requisitos para que a IA crie uma história do zero.</li>
                     <li><span className="font-semibold">Analisar Transcrição de Reunião:</span> Cole a transcrição de uma reunião para que a IA gere propostas de histórias de usuário.</li>
+                     <li><span className="font-semibold">Criar Feature BDD:</span> Guie a IA para criar um arquivo .feature completo a partir de uma descrição de alto nível.</li>
                 </ul>
             </div>
             <div>
@@ -111,7 +119,7 @@ const FeaturesModal = ({ onClose }: { onClose: () => void; }) => (
 );
 
 
-const HomeScreen = ({ onChoice, onShowFeatures, onShowModelModal, onShowPrototypeModal }: { onChoice: (choice: 'refining' | 'generating' | 'transcribing') => void; onShowFeatures: () => void; onShowModelModal: () => void; onShowPrototypeModal: () => void; }) => (
+const HomeScreen = ({ onChoice, onShowFeatures, onShowModelModal, onShowPrototypeModal }: { onChoice: (choice: 'refining' | 'generating' | 'transcribing' | 'bdd_input') => void; onShowFeatures: () => void; onShowModelModal: () => void; onShowPrototypeModal: () => void; }) => (
     <div className="flex flex-col items-center justify-center min-h-screen p-4 -mt-20">
         <div className="w-full max-w-4xl bg-gray-800 rounded-lg shadow-xl p-6 text-center relative">
              <button 
@@ -122,7 +130,7 @@ const HomeScreen = ({ onChoice, onShowFeatures, onShowModelModal, onShowPrototyp
                 <InformationCircleIcon className="w-6 h-6" />
             </button>
             <h2 className="text-xl font-semibold mb-4 text-gray-200">Como você quer começar?</h2>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-6">
                 <button
                     onClick={() => onChoice('refining')}
                     className="flex flex-col items-center justify-center bg-gray-700 hover:bg-gray-600 text-white font-bold py-6 px-6 rounded-md transition-transform transform hover:scale-105"
@@ -146,6 +154,14 @@ const HomeScreen = ({ onChoice, onShowFeatures, onShowModelModal, onShowPrototyp
                     <MicrophoneIcon className="w-8 h-8 mx-auto mb-2 text-green-300" />
                     Analisar Transcrição
                      <p className="text-sm font-normal text-gray-400 mt-1">Transforme uma reunião em propostas de histórias.</p>
+                </button>
+                <button
+                    onClick={() => onChoice('bdd_input')}
+                    className="flex flex-col items-center justify-center bg-gray-700 hover:bg-gray-600 text-white font-bold py-6 px-6 rounded-md transition-transform transform hover:scale-105"
+                >
+                    <DocumentTextIcon className="w-8 h-8 mx-auto mb-2 text-yellow-300" />
+                    Criar Feature BDD
+                    <p className="text-sm font-normal text-gray-400 mt-1">Guie a IA para criar um arquivo .feature completo.</p>
                 </button>
             </div>
         </div>
@@ -637,34 +653,58 @@ const PrototypeModelModal = ({ initialModel, onSave, onClose }: { initialModel: 
 
 
 const App: React.FC = () => {
-    type AppState = 'home' | 'refining' | 'generating' | 'transcribing' | 'loading_generation' | 'loading_transcription' | 'reviewing' | 'configuring' | 'loading' | 'planning' | 'error' | 'analyzing_complexity' | 'story_selection';
+    type AppState = 'home' | 'refining' | 'generating' | 'transcribing' | 'bdd_input' | 'bdd_scenarios' | 'bdd_review' |'loading_generation' | 'loading_transcription' | 'loading_bdd_scenarios' | 'reviewing' | 'configuring' | 'loading' | 'planning' | 'error' | 'analyzing_complexity' | 'story_selection';
     const [appState, setAppState] = useState<AppState>('home');
 
+    // Story refinement state
     const [originalStory, setOriginalStory] = useState<ParsedStory | null>(null);
+    const [suggestedStory, setSuggestedStory] = useState<string | null>(null);
+    const [splitStories, setSplitStories] = useState<SplitStory[]>([]);
+    const [complexityAnalysis, setComplexityAnalysis] = useState<ComplexityAnalysisResult | null>(null);
+
+    // BDD state
+    const [planningMode, setPlanningMode] = useState<'story' | 'bdd'>('story');
+    const [featureDescription, setFeatureDescription] = useState<string>('');
+    const [bddScenarios, setBddScenarios] = useState<BddScenario[]>([]);
+    const [currentScenarioIndex, setCurrentScenarioIndex] = useState<number | null>(null);
+    const [generatedGherkin, setGeneratedGherkin] = useState<string | null>(null);
+    const [poChecklistContent, setPoChecklistContent] = useState<string | null>(null);
+    const [stepDefContent, setStepDefContent] = useState<string | null>(null);
+    const [selectedTechnology, setSelectedTechnology] = useState('JavaScript - Cypress');
+
+    // Shared planning state
     const [activePersonas, setActivePersonas] = useState<Persona[]>([]);
     const [conversation, setConversation] = useState<ConversationTurn[]>([]);
     const [currentAnswer, setCurrentAnswer] = useState('');
+    
+    // UI and loading state
     const [isAnswering, setIsAnswering] = useState(false);
     const [isSuggesting, setIsSuggesting] = useState(false);
-    const [suggestedStory, setSuggestedStory] = useState<string | null>(null);
-    const [error, setError] = useState<string | null>(null);
-    const [isOriginalStoryModalOpen, setIsOriginalStoryModalOpen] = useState(false);
-    const [refinementPrompt, setRefinementPrompt] = useState('');
     const [isRefining, setIsRefining] = useState(false);
+    const [isGeneratingScenarios, setIsGeneratingScenarios] = useState(false);
+    const [isGeneratingPrototype, setIsGeneratingPrototype] = useState(false);
+    const [isAnalyzingComplexity, setIsAnalyzingComplexity] = useState(false);
+    const [isGeneratingGherkin, setIsGeneratingGherkin] = useState(false);
+    const [isGeneratingChecklist, setIsGeneratingChecklist] = useState(false);
+    const [isGeneratingSteps, setIsGeneratingSteps] = useState(false);
+    const [error, setError] = useState<string | null>(null);
+    
+    // Modals and utils
+    const [isOriginalStoryModalOpen, setIsOriginalStoryModalOpen] = useState(false);
+    const [isTechSelectionModalOpen, setIsTechSelectionModalOpen] = useState(false);
+    const [isPoChecklistModalOpen, setIsPoChecklistModalOpen] = useState(false);
+    const [isStepDefModalOpen, setIsStepDefModalOpen] = useState(false);
+    const [refinementPrompt, setRefinementPrompt] = useState('');
     const [copied, setCopied] = useState(false);
     const [copiedTurnId, setCopiedTurnId] = useState<number | null>(null);
     const [testScenarios, setTestScenarios] = useState<string | null>(null);
-    const [isGeneratingScenarios, setIsGeneratingScenarios] = useState(false);
     const [isFeaturesModalOpen, setIsFeaturesModalOpen] = useState(false);
-    const [isAnalyzingComplexity, setIsAnalyzingComplexity] = useState(false);
-    const [complexityAnalysis, setComplexityAnalysis] = useState<ComplexityAnalysisResult | null>(null);
-    const [splitStories, setSplitStories] = useState<SplitStory[]>([]);
     const [modelStory, setModelStory] = useState<string>('');
     const [isModelStoryModalOpen, setIsModelStoryModalOpen] = useState(false);
     const [prototypeModel, setPrototypeModel] = useState<string>('');
+    const [localPrototypeModel, setLocalPrototypeModel] = useState<string>('');
     const [isPrototypeModelModalOpen, setIsPrototypeModelModalOpen] = useState(false);
     const [suggestedPrototype, setSuggestedPrototype] = useState<string | null>(null);
-    const [isGeneratingPrototype, setIsGeneratingPrototype] = useState(false);
     
     const conversationEndRef = useRef<HTMLDivElement>(null);
 
@@ -684,6 +724,7 @@ const App: React.FC = () => {
     };
 
     const handleStorySubmit = useCallback((story: ParsedStory) => {
+        setPlanningMode('story');
         setOriginalStory(story);
         setAppState('configuring');
     }, []);
@@ -719,18 +760,45 @@ const App: React.FC = () => {
         }
     }, [modelStory]);
 
+    const handleFeatureSubmit = useCallback(async (description: string) => {
+        setAppState('loading_bdd_scenarios');
+        setFeatureDescription(description);
+        setError(null);
+        try {
+            const scenarios = await generateBddScenarios(description);
+            setBddScenarios(scenarios.map((title, i) => ({ id: Date.now() + i, title, gherkin: null, completed: false })));
+            setAppState('bdd_scenarios');
+        } catch (err) {
+             setError(err instanceof Error ? err.message : 'Falha ao gerar cenários BDD.');
+             setAppState('bdd_input');
+        }
+    }, []);
+
+    const handleDetailScenario = useCallback((index: number) => {
+        setCurrentScenarioIndex(index);
+        const scenario = bddScenarios[index];
+        setOriginalStory({ title: scenario.title, description: featureDescription });
+        setPlanningMode('bdd');
+        setAppState('configuring');
+    }, [bddScenarios, featureDescription]);
+
     const handleReviewConfirm = useCallback(() => {
         if (!originalStory) return;
         setAppState('configuring');
     }, [originalStory]);
 
     const handleStartPlanning = useCallback(async (selectedPersonas: Persona[]) => {
-        if (!originalStory || selectedPersonas.length === 0) return;
+        const contextStory = planningMode === 'bdd' && currentScenarioIndex !== null 
+            ? { title: bddScenarios[currentScenarioIndex].title, description: featureDescription }
+            : originalStory;
+
+        if (!contextStory || selectedPersonas.length === 0) return;
+        
         setAppState('loading');
         setActivePersonas(selectedPersonas);
         setError(null);
         try {
-            const initialQs = await generateInitialQuestions(originalStory, selectedPersonas);
+            const initialQs = await generateInitialQuestions(contextStory, selectedPersonas);
             
             const firstQuestion: ConversationTurn = {
                 id: Date.now(),
@@ -739,25 +807,30 @@ const App: React.FC = () => {
             };
             setConversation([firstQuestion]);
             setAppState('planning');
-        } catch (err)
- {
+        } catch (err) {
             setError(err instanceof Error ? err.message : 'Ocorreu um erro desconhecido.');
             setAppState('error');
         }
-    }, [originalStory]);
+    }, [originalStory, planningMode, currentScenarioIndex, bddScenarios, featureDescription]);
 
     const handleCancelConfiguration = useCallback(() => {
-        if (splitStories.length > 0) {
+        if (planningMode === 'bdd') {
+            setAppState('bdd_scenarios');
+        } else if (splitStories.length > 0) {
             setAppState('story_selection');
-            setOriginalStory(null);
         } else {
-            setOriginalStory(null);
             setAppState('home');
         }
-    }, [splitStories]);
+        setOriginalStory(null);
+    }, [splitStories, planningMode]);
 
     const submitAnswer = useCallback(async (answer: string) => {
-        if (!originalStory || activePersonas.length === 0) return;
+        const contextStory = planningMode === 'bdd' && currentScenarioIndex !== null
+            ? { title: bddScenarios[currentScenarioIndex].title, description: featureDescription }
+            : originalStory;
+
+        if (!contextStory || activePersonas.length === 0) return;
+
         setIsAnswering(true);
         
         const updatedConversation = conversation.map((turn, index) => 
@@ -771,7 +844,10 @@ const App: React.FC = () => {
             const currentPersonaIndex = activePersonas.indexOf(updatedConversation[currentTurnIndex].persona);
             const nextPersona = activePersonas[(currentPersonaIndex + 1) % activePersonas.length];
 
-            const nextQuestionText = await generateFollowUpQuestion(originalStory, updatedConversation, nextPersona);
+            const nextQuestionText = planningMode === 'bdd'
+                ? await generateBddFollowUpQuestion(featureDescription, contextStory.title, updatedConversation, nextPersona)
+                : await generateFollowUpQuestion(contextStory, updatedConversation, nextPersona);
+                
             const nextTurn: ConversationTurn = { id: Date.now(), persona: nextPersona, question: nextQuestionText };
             setConversation(prev => [...prev, nextTurn]);
 
@@ -780,7 +856,7 @@ const App: React.FC = () => {
         } finally {
             setIsAnswering(false);
         }
-    }, [conversation, originalStory, activePersonas]);
+    }, [conversation, originalStory, activePersonas, planningMode, currentScenarioIndex, bddScenarios, featureDescription]);
 
     const handleAnswerSubmit = () => {
         if (!currentAnswer.trim() || isAnswering) return;
@@ -827,6 +903,43 @@ const App: React.FC = () => {
             setIsRefining(false);
         }
     }, [suggestedStory, refinementPrompt]);
+
+    const handleGenerateGherkin = useCallback(async () => {
+        if (planningMode !== 'bdd' || currentScenarioIndex === null || conversation.length === 0) return;
+        setIsGeneratingGherkin(true);
+        setGeneratedGherkin(null);
+        setError(null);
+        try {
+            const scenario = bddScenarios[currentScenarioIndex];
+            const lastTurn = conversation[conversation.length - 1];
+            const convForGherkin = lastTurn.answer ? conversation : conversation.slice(0, -1);
+            const gherkin = await generateGherkinFromConversation(featureDescription, scenario.title, convForGherkin);
+            setGeneratedGherkin(gherkin);
+        } catch (err) {
+             setError(err instanceof Error ? err.message : 'Falha ao gerar o Gherkin.');
+        } finally {
+            setIsGeneratingGherkin(false);
+        }
+    }, [planningMode, currentScenarioIndex, conversation, featureDescription, bddScenarios]);
+
+    const handleCompleteScenario = useCallback(() => {
+        if (currentScenarioIndex === null || !generatedGherkin) return;
+        
+        const updatedScenarios = [...bddScenarios];
+        updatedScenarios[currentScenarioIndex] = {
+            ...updatedScenarios[currentScenarioIndex],
+            gherkin: generatedGherkin,
+            completed: true
+        };
+        setBddScenarios(updatedScenarios);
+
+        // Reset planning state for next scenario
+        setConversation([]);
+        setCurrentScenarioIndex(null);
+        setGeneratedGherkin(null);
+        
+        setAppState('bdd_scenarios');
+    }, [currentScenarioIndex, generatedGherkin, bddScenarios]);
     
     const handleGenerateScenarios = useCallback(async () => {
         if (!originalStory) return;
@@ -867,14 +980,46 @@ const App: React.FC = () => {
         setError(null);
         try {
             const storyToPrototype = suggestedStory ?? originalStory.description;
-            const prototypeCode = await generatePrototype(storyToPrototype, prototypeModel);
+            const modelToUse = localPrototypeModel || prototypeModel;
+            const prototypeCode = await generatePrototype(storyToPrototype, modelToUse);
             setSuggestedPrototype(prototypeCode);
         } catch (err) {
              setError(err instanceof Error ? err.message : 'Falha ao gerar o protótipo.');
         } finally {
             setIsGeneratingPrototype(false);
         }
-    }, [originalStory, suggestedStory, prototypeModel]);
+    }, [originalStory, suggestedStory, prototypeModel, localPrototypeModel]);
+
+    const handleGeneratePoChecklist = useCallback(async (featureFileContent: string) => {
+        setIsGeneratingChecklist(true);
+        setPoChecklistContent(null);
+        setError(null);
+        try {
+            const checklist = await generatePoChecklist(featureFileContent);
+            setPoChecklistContent(checklist);
+            setIsPoChecklistModalOpen(true);
+        } catch (err) {
+            setError(err instanceof Error ? err.message : 'Falha ao gerar o checklist.');
+        } finally {
+            setIsGeneratingChecklist(false);
+        }
+    }, []);
+
+    const handleGenerateStepDefs = useCallback(async (featureFileContent: string) => {
+        setIsTechSelectionModalOpen(false);
+        setIsGeneratingSteps(true);
+        setStepDefContent(null);
+        setError(null);
+        try {
+            const steps = await generateStepDefinitions(featureFileContent, selectedTechnology);
+            setStepDefContent(steps);
+            setIsStepDefModalOpen(true);
+        } catch (err) {
+            setError(err instanceof Error ? err.message : 'Falha ao gerar os steps.');
+        } finally {
+            setIsGeneratingSteps(false);
+        }
+    }, [selectedTechnology]);
 
     const handleAcceptSplit = useCallback(() => {
         if (complexityAnalysis?.suggestedStories) {
@@ -885,52 +1030,66 @@ const App: React.FC = () => {
     }, [complexityAnalysis]);
 
     const handleSelectSplitStory = useCallback((story: SplitStory) => {
+        // Reset story-specific state
         setConversation([]);
         setActivePersonas([]);
         setSuggestedStory(null);
         setError(null);
         setCurrentAnswer('');
-        setIsAnswering(false);
-        setIsSuggesting(false);
-        setIsRefining(false);
-        setRefinementPrompt('');
         setTestScenarios(null);
-        setIsGeneratingScenarios(false);
-        setCopiedTurnId(null);
-        setComplexityAnalysis(null);
-        setIsAnalyzingComplexity(false);
         setSuggestedPrototype(null);
-        setIsGeneratingPrototype(false);
+        setComplexityAnalysis(null);
+        setLocalPrototypeModel('');
         
+        // Set new story and move to config
         setOriginalStory(story);
+        setPlanningMode('story');
         setAppState('configuring');
     }, []);
 
 
     const resetApp = () => {
-        setSplitStories([]);
         setAppState('home');
+        // Reset all states
         setOriginalStory(null);
-        setConversation([]);
-        setActivePersonas([]);
         setSuggestedStory(null);
-        setError(null);
+        setSplitStories([]);
+        setComplexityAnalysis(null);
+        setPlanningMode('story');
+        setFeatureDescription('');
+        setBddScenarios([]);
+        setCurrentScenarioIndex(null);
+        setGeneratedGherkin(null);
+        setPoChecklistContent(null);
+        setStepDefContent(null);
+        setActivePersonas([]);
+        setConversation([]);
         setCurrentAnswer('');
         setIsAnswering(false);
         setIsSuggesting(false);
         setIsRefining(false);
-        setRefinementPrompt('');
-        setTestScenarios(null);
         setIsGeneratingScenarios(false);
-        setCopiedTurnId(null);
-        setIsFeaturesModalOpen(false);
-        setComplexityAnalysis(null);
+        setIsGeneratingPrototype(false);
         setIsAnalyzingComplexity(false);
+        setIsGeneratingGherkin(false);
+        setIsGeneratingChecklist(false);
+        setIsGeneratingSteps(false);
+        setError(null);
+        setIsOriginalStoryModalOpen(false);
+        setIsTechSelectionModalOpen(false);
+        setIsPoChecklistModalOpen(false);
+        setIsStepDefModalOpen(false);
+        setRefinementPrompt('');
+        setCopied(false);
+        setCopiedTurnId(null);
+        setTestScenarios(null);
+        setIsFeaturesModalOpen(false);
         setModelStory('');
+        setIsModelStoryModalOpen(false);
         setPrototypeModel('');
+        setLocalPrototypeModel('');
         setIsPrototypeModelModalOpen(false);
         setSuggestedPrototype(null);
-        setIsGeneratingPrototype(false);
     };
 
     const handleRestart = () => {
@@ -975,7 +1134,7 @@ const App: React.FC = () => {
         switch (appState) {
             case 'home':
                 return <HomeScreen 
-                            onChoice={setAppState as (choice: 'refining' | 'generating' | 'transcribing') => void} 
+                            onChoice={setAppState} 
                             onShowFeatures={() => setIsFeaturesModalOpen(true)}
                             onShowModelModal={() => setIsModelStoryModalOpen(true)}
                             onShowPrototypeModal={() => setIsPrototypeModelModalOpen(true)}
@@ -986,10 +1145,156 @@ const App: React.FC = () => {
                 return <GenerateStoryInput onGenerate={handleGenerateStory} />;
             case 'transcribing':
                 return <TranscriptionInput onTranscriptSubmit={handleTranscriptSubmit} />;
+            case 'bdd_input':
+                return (
+                    <div className="flex flex-col items-center justify-center min-h-screen p-4 -mt-20">
+                        <div className="w-full max-w-2xl bg-gray-800 rounded-lg shadow-xl p-6">
+                            <h2 className="text-xl font-semibold mb-2 text-gray-200">Criar Feature BDD</h2>
+                            <p className="text-gray-400 mb-4 text-sm">Descreva a funcionalidade em alto nível. A IA irá sugerir os cenários de teste.</p>
+                            <textarea
+                                className="w-full h-40 p-3 bg-gray-900 border border-gray-700 rounded-md focus:ring-2 focus:ring-purple-500 transition text-gray-300 resize-y"
+                                value={featureDescription}
+                                onChange={(e) => setFeatureDescription(e.target.value)}
+                                placeholder="Ex: Um CRUD de Pessoas onde o campo nome é obrigatório e o email deve ser único."
+                            />
+                            {error && <p className="text-red-400 mt-2 text-sm">{error}</p>}
+                            <button
+                                onClick={() => handleFeatureSubmit(featureDescription)}
+                                disabled={!featureDescription.trim()}
+                                className="mt-6 w-full bg-purple-600 hover:bg-purple-700 disabled:bg-gray-500 text-white font-bold py-2 px-4 rounded-md transition-transform transform hover:scale-105"
+                            >
+                                Brainstorm de Cenários
+                            </button>
+                        </div>
+                    </div>
+                );
+             case 'bdd_scenarios':
+                 // This component is complex, so let's define it here.
+                const BddScenarioList = () => {
+                    const [editingIndex, setEditingIndex] = useState<number | null>(null);
+                    const [editingText, setEditingText] = useState('');
+
+                    const handleEdit = (index: number) => {
+                        setEditingIndex(index);
+                        setEditingText(bddScenarios[index].title);
+                    };
+
+                    const handleSaveEdit = (index: number) => {
+                        const updated = [...bddScenarios];
+                        updated[index].title = editingText;
+                        setBddScenarios(updated);
+                        setEditingIndex(null);
+                    };
+
+                    const handleDelete = (id: number) => {
+                        if(window.confirm("Tem certeza que deseja remover este cenário?")) {
+                            setBddScenarios(bddScenarios.filter(s => s.id !== id));
+                        }
+                    };
+
+                    const handleAdd = () => {
+                        const newScenario: BddScenario = { id: Date.now(), title: "Novo Cenário", gherkin: null, completed: false };
+                        setBddScenarios([...bddScenarios, newScenario]);
+                        handleEdit(bddScenarios.length);
+                    };
+
+                    return (
+                        <div className="flex flex-col items-center justify-center min-h-screen p-4 -mt-20">
+                            <div className="w-full max-w-3xl bg-gray-800 rounded-lg shadow-xl p-6">
+                                <h2 className="text-xl font-semibold mb-2 text-gray-200">Cenários para a Feature</h2>
+                                <p className="text-gray-400 mb-4 text-sm">Revise, edite, adicione ou remova cenários. Depois, clique em "Detalhar Cenário" para iniciar a sessão de planejamento para cada um.</p>
+                                <div className="space-y-3 max-h-[50vh] overflow-y-auto pr-2">
+                                    {bddScenarios.map((scenario, index) => (
+                                        <div key={scenario.id} className={`flex items-center gap-3 p-3 rounded-md ${scenario.completed ? 'bg-green-900/30' : 'bg-gray-700/50'}`}>
+                                            {scenario.completed ? <CheckCircleIcon className="w-6 h-6 text-green-400 flex-shrink-0"/> : <div className="w-6 h-6 flex-shrink-0" />}
+                                            {editingIndex === index ? (
+                                                <input
+                                                    type="text"
+                                                    value={editingText}
+                                                    onChange={(e) => setEditingText(e.target.value)}
+                                                    onBlur={() => handleSaveEdit(index)}
+                                                    onKeyDown={(e) => e.key === 'Enter' && handleSaveEdit(index)}
+                                                    autoFocus
+                                                    className="flex-grow p-1 bg-gray-900 border border-purple-500 rounded-md text-gray-200"
+                                                />
+                                            ) : (
+                                                <p className={`flex-grow ${scenario.completed ? 'line-through text-gray-400' : 'text-gray-200'}`}>{scenario.title}</p>
+                                            )}
+                                            <div className="flex items-center gap-2">
+                                                {!scenario.completed && (
+                                                    <>
+                                                        <button onClick={() => handleEdit(index)} title="Editar"><PencilIcon className="w-5 h-5 text-gray-400 hover:text-yellow-300" /></button>
+                                                        <button onClick={() => handleDelete(scenario.id)} title="Remover"><TrashIcon className="w-5 h-5 text-gray-400 hover:text-red-400" /></button>
+                                                        <button onClick={() => handleDetailScenario(index)} className="text-sm bg-purple-600 hover:bg-purple-700 text-white font-bold py-1 px-3 rounded">Detalhar</button>
+                                                    </>
+                                                )}
+                                                {scenario.completed && <span className="text-sm text-green-400 font-bold">Concluído</span>}
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                                <div className="flex justify-between mt-6">
+                                     <button onClick={handleAdd} className="bg-gray-600 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded">Adicionar Cenário</button>
+                                     <button onClick={() => setAppState('bdd_review')} disabled={!bddScenarios.some(s => s.completed)} className="bg-green-600 hover:bg-green-700 disabled:bg-gray-500 text-white font-bold py-2 px-4 rounded">Revisar Arquivo .feature</button>
+                                </div>
+                            </div>
+                        </div>
+                    )
+                };
+                return <BddScenarioList />;
+            case 'bdd_review':
+                const BddFeatureReviewScreen = () => {
+                    const featureFileContent = `Funcionalidade: ${featureDescription}\n\n${bddScenarios
+                        .filter(s => s.completed && s.gherkin)
+                        .map(s => s.gherkin)
+                        .join('\n\n')}`;
+                    
+                    const [copied, setCopied] = useState(false);
+                    const handleCopy = () => {
+                        navigator.clipboard.writeText(featureFileContent);
+                        setCopied(true);
+                        setTimeout(() => setCopied(false), 2000);
+                    };
+
+                    return (
+                        <div className="flex flex-col items-center justify-center min-h-screen p-4 -mt-20">
+                            <div className="w-full max-w-4xl bg-gray-800 rounded-lg shadow-xl p-6">
+                                <h2 className="text-xl font-semibold mb-2 text-gray-200">Arquivo .feature Consolidado</h2>
+                                <p className="text-gray-400 mb-4 text-sm">Este é o arquivo .feature gerado. Agora você pode gerar artefatos de suporte para o PO e para os Desenvolvedores.</p>
+                                <div className="relative">
+                                    <button onClick={handleCopy} title="Copiar" className="absolute top-2 right-2 text-gray-400 hover:text-white transition">
+                                        {copied ? <ClipboardCheckIcon className="w-5 h-5 text-green-400" /> : <ClipboardIcon className="w-5 h-5" />}
+                                    </button>
+                                    <pre className="text-sm text-gray-300 whitespace-pre-wrap font-mono bg-gray-900/50 p-4 rounded-md max-h-[50vh] overflow-y-auto">{featureFileContent}</pre>
+                                </div>
+                                <div className="mt-6 border-t border-gray-700 pt-6">
+                                    <h3 className="text-lg font-semibold text-cyan-300 mb-4">Gerar Artefatos de Suporte</h3>
+                                    <div className="flex flex-col sm:flex-row gap-4">
+                                        <button onClick={() => handleGeneratePoChecklist(featureFileContent)} disabled={isGeneratingChecklist} className="flex-1 flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-900 text-white font-bold py-2 px-4 rounded transition">
+                                            <ClipboardListIcon className="w-5 h-5" />
+                                            {isGeneratingChecklist ? 'Gerando...' : 'Gerar Checklist de Pré-Homologação'}
+                                        </button>
+                                        <button onClick={() => setIsTechSelectionModalOpen(true)} disabled={isGeneratingSteps} className="flex-1 flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-900 text-white font-bold py-2 px-4 rounded transition">
+                                            <CodeIcon className="w-5 h-5" />
+                                            {isGeneratingSteps ? 'Gerando...' : 'Gerar Esqueletos de Steps'}
+                                        </button>
+                                    </div>
+                                    {error && <p className="text-red-400 mt-4 text-center">{error}</p>}
+                                </div>
+                                <div className="flex justify-end mt-6">
+                                    <button onClick={() => setAppState('bdd_scenarios')} className="bg-gray-600 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded">Voltar para a Lista de Cenários</button>
+                                </div>
+                            </div>
+                        </div>
+                    );
+                };
+                return <BddFeatureReviewScreen />;
             case 'loading_generation':
                 return <div className="h-screen -mt-20"><Loader text="A IA está gerando sua história..." /></div>;
             case 'loading_transcription':
                 return <div className="h-screen -mt-20"><Loader text="A IA está analisando a transcrição e gerando histórias..." /></div>;
+             case 'loading_bdd_scenarios':
+                return <div className="h-screen -mt-20"><Loader text="A IA está fazendo um brainstorm de cenários..." /></div>;
             case 'reviewing':
                 return originalStory && <ReviewGeneratedStory story={originalStory} onConfirm={handleReviewConfirm} onEdit={setOriginalStory} />;
             case 'configuring':
@@ -1002,10 +1307,12 @@ const App: React.FC = () => {
                 return originalStory && (
                     <main className="p-4 lg:p-8 grid grid-cols-1 lg:grid-cols-12 gap-8 max-w-screen-2xl mx-auto">
                         <div className="lg:col-span-7 flex flex-col">
+                            {/* Main planning left panel (unchanged) */}
                             <div className="flex-grow bg-gray-800/50 rounded-lg p-4 lg:p-6 border border-gray-700 mb-6">
                                 <div className="flex justify-between items-center mb-4">
                                     <h3 className="text-lg font-semibold text-cyan-300">Sessão de Planejamento</h3>
-                                    <div className="flex items-center gap-2">
+                                    {planningMode === 'story' && (
+                                     <div className="flex items-center gap-2">
                                         <button
                                             onClick={handleAnalyzeComplexity}
                                             disabled={isAnalyzingComplexity}
@@ -1024,6 +1331,7 @@ const App: React.FC = () => {
                                             <span>Ver História Original</span>
                                         </button>
                                     </div>
+                                    )}
                                 </div>
                                 {isAnalyzingComplexity && <Loader text="Analisando complexidade..." />}
                                 <div className="space-y-6 max-h-[50vh] overflow-y-auto pr-2">
@@ -1078,99 +1386,101 @@ const App: React.FC = () => {
                             {isAnswering && <Loader text="A IA está gerando a próxima pergunta..." />}
                         </div>
                         <div className="lg:col-span-5 h-fit lg:sticky top-24 space-y-6">
-                            <div className="bg-gray-800/50 rounded-lg p-4 lg:p-6 border border-gray-700">
-                                <h3 className="text-lg font-semibold text-yellow-300 mb-4">Refinamento da História</h3>
-                                <button
-                                    onClick={handleGetSuggestion}
-                                    disabled={isSuggesting}
-                                    className="w-full mb-4 bg-yellow-600 hover:bg-yellow-700 disabled:bg-yellow-900 disabled:cursor-not-allowed text-white font-bold py-2 px-4 rounded-md transition-transform transform hover:scale-105"
-                                >
-                                    {suggestedStory ? 'Gerar Nova Sugestão' : 'Pedir Sugestão de Nova Versão ao PO'}
-                                </button>
-                                {isSuggesting && <Loader text="O PO Sênior está reescrevendo a história..." />}
-                                {suggestedStory && !isSuggesting && (
-                                    <div className="space-y-4">
-                                        <div>
-                                            <div className="flex justify-between items-center mb-2">
-                                                <h4 className="font-semibold text-md">Versão Sugerida:</h4>
-                                                <button onClick={() => handleCopy(suggestedStory)} title="Copiar" className="text-gray-400 hover:text-white transition">
-                                                    {copied ? <ClipboardCheckIcon className="w-5 h-5 text-green-400" /> : <ClipboardIcon className="w-5 h-5" />}
-                                                </button>
+                            {planningMode === 'story' ? (
+                                <>
+                                    <div className="bg-gray-800/50 rounded-lg p-4 lg:p-6 border border-gray-700">
+                                        <h3 className="text-lg font-semibold text-yellow-300 mb-4">Refinamento da História</h3>
+                                        <button
+                                            onClick={handleGetSuggestion}
+                                            disabled={isSuggesting}
+                                            className="w-full mb-4 bg-yellow-600 hover:bg-yellow-700 disabled:bg-yellow-900 disabled:cursor-not-allowed text-white font-bold py-2 px-4 rounded-md transition-transform transform hover:scale-105"
+                                        >
+                                            {suggestedStory ? 'Gerar Nova Sugestão' : 'Pedir Sugestão de Nova Versão ao PO'}
+                                        </button>
+                                        {isSuggesting && <Loader text="O PO Sênior está reescrevendo a história..." />}
+                                        {suggestedStory && !isSuggesting && (
+                                            <div className="space-y-4">
+                                                <div>
+                                                    <div className="flex justify-between items-center mb-2">
+                                                        <h4 className="font-semibold text-md">Versão Sugerida:</h4>
+                                                        <button onClick={() => handleCopy(suggestedStory)} title="Copiar" className="text-gray-400 hover:text-white transition">
+                                                            {copied ? <ClipboardCheckIcon className="w-5 h-5 text-green-400" /> : <ClipboardIcon className="w-5 h-5" />}
+                                                        </button>
+                                                    </div>
+                                                    <pre className="text-sm text-gray-300 whitespace-pre-wrap font-sans bg-gray-900/50 p-3 rounded-md max-h-60 overflow-y-auto">{suggestedStory}</pre>
+                                                </div>
+                                                <div className="border-t border-gray-700 pt-4">
+                                                    <h4 className="font-semibold text-md mb-2">Sugerir Modificações</h4>
+                                                    <textarea
+                                                        value={refinementPrompt}
+                                                        onChange={(e) => setRefinementPrompt(e.target.value)}
+                                                        placeholder="Ex: Simplifique o critério de aceitação 2 e adicione um critério sobre tratamento de erros."
+                                                        rows={3}
+                                                        className="w-full p-2 bg-gray-900 border border-gray-600 rounded-md focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition text-gray-300"
+                                                    />
+                                                    <button
+                                                        onClick={handleRefineSuggestion}
+                                                        disabled={isRefining || !refinementPrompt.trim()}
+                                                        className="w-full mt-2 bg-purple-600 hover:bg-purple-700 disabled:bg-gray-500 text-white font-bold py-2 px-4 rounded-md transition"
+                                                    >
+                                                        {isRefining ? 'Refinando...' : 'Refinar Sugestão'}
+                                                    </button>
+                                                </div>
                                             </div>
-                                            <pre className="text-sm text-gray-300 whitespace-pre-wrap font-sans bg-gray-900/50 p-3 rounded-md max-h-60 overflow-y-auto">{suggestedStory}</pre>
-                                        </div>
-                                        <div className="border-t border-gray-700 pt-4">
-                                            <h4 className="font-semibold text-md mb-2">Sugerir Modificações</h4>
+                                        )}
+                                        {isRefining && <Loader text="Refinando a sugestão..." />}
+                                    </div>
+                                    <div className="bg-gray-800/50 rounded-lg p-4 lg:p-6 border border-gray-700">
+                                        <h3 className="text-lg font-semibold text-green-300 mb-4 flex items-center gap-2"><ClipboardListIcon className="w-6 h-6"/>Cenários de Teste</h3>
+                                        <button onClick={handleGenerateScenarios} disabled={isGeneratingScenarios} className="w-full mb-4 bg-green-600 hover:bg-green-700 disabled:bg-green-900 disabled:cursor-not-allowed text-white font-bold py-2 px-4 rounded-md transition-transform transform hover:scale-105">Sugerir Cenários de Teste</button>
+                                        {isGeneratingScenarios && <Loader text="O QA Sênior está elaborando os testes..." />}
+                                        {testScenarios && !isGeneratingScenarios && (
+                                            <div>
+                                                <div className="flex justify-between items-center mb-2"><h4 className="font-semibold text-md">Cenários Sugeridos:</h4><button onClick={() => handleCopy(testScenarios)} title="Copiar Cenários" className="text-gray-400 hover:text-white transition">{copied ? <ClipboardCheckIcon className="w-5 h-5 text-green-400" /> : <ClipboardIcon className="w-5 h-5" />}</button></div>
+                                                <pre className="text-sm text-gray-300 whitespace-pre-wrap font-sans bg-gray-900/50 p-3 rounded-md max-h-60 overflow-y-auto">{testScenarios}</pre>
+                                            </div>
+                                        )}
+                                    </div>
+                                    <div className="bg-gray-800/50 rounded-lg p-4 lg:p-6 border border-gray-700">
+                                        <h3 className="text-lg font-semibold text-blue-300 mb-4 flex items-center gap-2"><ViewBoardsIcon className="w-6 h-6"/>Prototipagem Visual</h3>
+                                        <button onClick={handleGeneratePrototype} disabled={isGeneratingPrototype} className="w-full mb-2 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-900 disabled:cursor-not-allowed text-white font-bold py-2 px-4 rounded-md transition-transform transform hover:scale-105">Sugerir Protótipo Visual</button>
+                                        <details className="mt-4">
+                                            <summary className="cursor-pointer text-sm text-gray-400 hover:text-white">
+                                                Usar modelo de protótipo (opcional)
+                                            </summary>
                                             <textarea
-                                                value={refinementPrompt}
-                                                onChange={(e) => setRefinementPrompt(e.target.value)}
-                                                placeholder="Ex: Simplifique o critério de aceitação 2 e adicione um critério sobre tratamento de erros."
-                                                rows={3}
-                                                className="w-full p-2 bg-gray-900 border border-gray-600 rounded-md focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition text-gray-300"
+                                                value={localPrototypeModel}
+                                                onChange={(e) => setLocalPrototypeModel(e.target.value)}
+                                                placeholder="Cole um trecho de código HTML/Tailwind aqui para guiar a IA..."
+                                                rows={5}
+                                                className="w-full mt-2 p-2 bg-gray-900 border border-gray-600 rounded-md focus:ring-2 focus:ring-purple-500 transition text-gray-300 font-mono text-xs"
                                             />
-                                            <button
-                                                onClick={handleRefineSuggestion}
-                                                disabled={isRefining || !refinementPrompt.trim()}
-                                                className="w-full mt-2 bg-purple-600 hover:bg-purple-700 disabled:bg-gray-500 text-white font-bold py-2 px-4 rounded-md transition"
-                                            >
-                                                {isRefining ? 'Refinando...' : 'Refinar Sugestão'}
-                                            </button>
+                                        </details>
+                                        {isGeneratingPrototype && <div className="mt-4"><Loader text="A IA está desenhando o protótipo..." /></div>}
+                                        {suggestedPrototype && !isGeneratingPrototype && (
+                                            <div className="mt-4">
+                                                <div className="flex justify-between items-center mb-2"><h4 className="font-semibold text-md">Código do Protótipo:</h4><button onClick={() => handleCopy(suggestedPrototype)} title="Copiar Código" className="text-gray-400 hover:text-white transition">{copied ? <ClipboardCheckIcon className="w-5 h-5 text-green-400" /> : <ClipboardIcon className="w-5 h-5" />}</button></div>
+                                                <pre className="text-sm text-gray-300 whitespace-pre-wrap font-mono bg-gray-900/50 p-3 rounded-md max-h-60 overflow-y-auto">{suggestedPrototype}</pre>
+                                            </div>
+                                        )}
+                                    </div>
+                                </>
+                            ) : ( // BDD Mode Panel
+                                <div className="bg-gray-800/50 rounded-lg p-4 lg:p-6 border border-gray-700">
+                                    <h3 className="text-lg font-semibold text-yellow-300 mb-1">Construtor de Cenário BDD</h3>
+                                    <p className="text-sm text-gray-400 mb-4">Cenário: <span className="font-semibold">{originalStory.title}</span></p>
+                                    <button onClick={handleGenerateGherkin} disabled={isGeneratingGherkin || !!generatedGherkin} className="w-full mb-4 bg-yellow-600 hover:bg-yellow-700 disabled:bg-yellow-900 disabled:cursor-not-allowed text-white font-bold py-2 px-4 rounded-md transition-transform transform hover:scale-105">Gerar Cenário em Gherkin</button>
+                                    {isGeneratingGherkin && <Loader text="A IA está escrevendo o Gherkin..." />}
+                                    {generatedGherkin && !isGeneratingGherkin && (
+                                        <div>
+                                            <div className="flex justify-between items-center mb-2"><h4 className="font-semibold text-md">Gherkin Gerado:</h4><button onClick={() => handleCopy(generatedGherkin)} title="Copiar Gherkin" className="text-gray-400 hover:text-white transition">{copied ? <ClipboardCheckIcon className="w-5 h-5 text-green-400" /> : <ClipboardIcon className="w-5 h-5" />}</button></div>
+                                            <pre className="text-sm text-gray-300 whitespace-pre-wrap font-mono bg-gray-900/50 p-3 rounded-md max-h-80 overflow-y-auto">{generatedGherkin}</pre>
+                                            <button onClick={handleCompleteScenario} className="w-full mt-4 bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded-md transition">Concluir e Voltar para a Lista</button>
                                         </div>
-                                    </div>
-                                )}
-                                {isRefining && <Loader text="Refinando a sugestão..." />}
-                            </div>
-                             <div className="bg-gray-800/50 rounded-lg p-4 lg:p-6 border border-gray-700">
-                                <h3 className="text-lg font-semibold text-green-300 mb-4 flex items-center gap-2">
-                                    <ClipboardListIcon className="w-6 h-6"/>
-                                    Cenários de Teste
-                                </h3>
-                                <button
-                                    onClick={handleGenerateScenarios}
-                                    disabled={isGeneratingScenarios}
-                                    className="w-full mb-4 bg-green-600 hover:bg-green-700 disabled:bg-green-900 disabled:cursor-not-allowed text-white font-bold py-2 px-4 rounded-md transition-transform transform hover:scale-105"
-                                >
-                                    Sugerir Cenários de Teste
-                                </button>
-                                {isGeneratingScenarios && <Loader text="O QA Sênior está elaborando os testes..." />}
-                                {testScenarios && !isGeneratingScenarios && (
-                                    <div>
-                                         <div className="flex justify-between items-center mb-2">
-                                             <h4 className="font-semibold text-md">Cenários Sugeridos:</h4>
-                                             <button onClick={() => handleCopy(testScenarios)} title="Copiar Cenários" className="text-gray-400 hover:text-white transition">
-                                                 {copied ? <ClipboardCheckIcon className="w-5 h-5 text-green-400" /> : <ClipboardIcon className="w-5 h-5" />}
-                                             </button>
-                                         </div>
-                                         <pre className="text-sm text-gray-300 whitespace-pre-wrap font-sans bg-gray-900/50 p-3 rounded-md max-h-60 overflow-y-auto">{testScenarios}</pre>
-                                    </div>
-                                )}
-                            </div>
-                             <div className="bg-gray-800/50 rounded-lg p-4 lg:p-6 border border-gray-700">
-                                <h3 className="text-lg font-semibold text-blue-300 mb-4 flex items-center gap-2">
-                                    <ViewBoardsIcon className="w-6 h-6"/>
-                                    Prototipagem Visual
-                                </h3>
-                                <button
-                                    onClick={handleGeneratePrototype}
-                                    disabled={isGeneratingPrototype}
-                                    className="w-full mb-4 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-900 disabled:cursor-not-allowed text-white font-bold py-2 px-4 rounded-md transition-transform transform hover:scale-105"
-                                >
-                                    Sugerir Protótipo Visual
-                                </button>
-                                {isGeneratingPrototype && <Loader text="A IA está desenhando o protótipo..." />}
-                                {suggestedPrototype && !isGeneratingPrototype && (
-                                    <div>
-                                         <div className="flex justify-between items-center mb-2">
-                                             <h4 className="font-semibold text-md">Código do Protótipo:</h4>
-                                             <button onClick={() => handleCopy(suggestedPrototype)} title="Copiar Código" className="text-gray-400 hover:text-white transition">
-                                                 {copied ? <ClipboardCheckIcon className="w-5 h-5 text-green-400" /> : <ClipboardIcon className="w-5 h-5" />}
-                                             </button>
-                                         </div>
-                                         <pre className="text-sm text-gray-300 whitespace-pre-wrap font-mono bg-gray-900/50 p-3 rounded-md max-h-60 overflow-y-auto">{suggestedPrototype}</pre>
-                                    </div>
-                                )}
-                            </div>
-                            {error && !isSuggesting && !isRefining && !isGeneratingScenarios && !isGeneratingPrototype && <p className="text-red-400 mt-2 text-sm text-center p-2 bg-red-900/20 rounded-md">{error}</p>}
+                                    )}
+                                </div>
+                            )}
+                            {error && !isSuggesting && !isRefining && !isGeneratingScenarios && !isGeneratingPrototype && !isGeneratingGherkin && <p className="text-red-400 mt-2 text-sm text-center p-2 bg-red-900/20 rounded-md">{error}</p>}
                         </div>
                     </main>
                 );
@@ -1215,6 +1525,62 @@ const App: React.FC = () => {
                     onClose={() => setIsPrototypeModelModalOpen(false)}
                     onSave={(model) => setPrototypeModel(model)}
                 />
+            )}
+            {isTechSelectionModalOpen && (
+                <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4" onClick={() => setIsTechSelectionModalOpen(false)}>
+                    <div className="bg-gray-800 rounded-lg shadow-xl max-w-sm w-full p-6 border border-gray-700 animate-fade-in-up" onClick={e => e.stopPropagation()}>
+                        <h3 className="text-lg font-semibold text-purple-300 mb-4">Selecionar Tecnologia</h3>
+                        <select
+                            value={selectedTechnology}
+                            onChange={(e) => setSelectedTechnology(e.target.value)}
+                            className="w-full p-2 bg-gray-900 border border-gray-600 rounded-md focus:ring-2 focus:ring-purple-500 transition text-gray-300"
+                        >
+                            <option>JavaScript - Cypress</option>
+                            <option>Python - Behave</option>
+                            <option>Java - Cucumber</option>
+                        </select>
+                        <div className="flex justify-end gap-3 mt-4">
+                            <button onClick={() => setIsTechSelectionModalOpen(false)} className="bg-gray-600 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded transition">Cancelar</button>
+                            <button onClick={() => handleGenerateStepDefs(`Funcionalidade: ${featureDescription}\n\n${bddScenarios.filter(s => s.completed && s.gherkin).map(s => s.gherkin).join('\n\n')}`)} className="bg-purple-600 hover:bg-purple-700 text-white font-bold py-2 px-4 rounded transition">Gerar</button>
+                        </div>
+                    </div>
+                </div>
+            )}
+            {isPoChecklistModalOpen && poChecklistContent && (
+                 <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4" onClick={() => setIsPoChecklistModalOpen(false)}>
+                    <div className="bg-gray-800 rounded-lg shadow-xl max-w-3xl w-full p-6 border border-gray-700 animate-fade-in-up" onClick={e => e.stopPropagation()}>
+                         <div className="flex justify-between items-center mb-4">
+                            <h3 className="text-xl font-semibold text-purple-300">Checklist de Pré-Homologação</h3>
+                            <button onClick={() => handleCopy(poChecklistContent)} title="Copiar Checklist" className="text-gray-400 hover:text-white transition">
+                                {copied ? <ClipboardCheckIcon className="w-5 h-5 text-green-400" /> : <ClipboardIcon className="w-5 h-5" />}
+                            </button>
+                        </div>
+                        <div className="max-h-[70vh] overflow-y-auto pr-2">
+                           <pre className="text-sm text-gray-300 whitespace-pre-wrap font-sans bg-gray-900/50 p-3 rounded-md">{poChecklistContent}</pre>
+                        </div>
+                         <div className="flex justify-end mt-6">
+                            <button onClick={() => setIsPoChecklistModalOpen(false)} className="bg-gray-600 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded">Fechar</button>
+                        </div>
+                    </div>
+                 </div>
+            )}
+            {isStepDefModalOpen && stepDefContent && (
+                 <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4" onClick={() => setIsStepDefModalOpen(false)}>
+                    <div className="bg-gray-800 rounded-lg shadow-xl max-w-3xl w-full p-6 border border-gray-700 animate-fade-in-up" onClick={e => e.stopPropagation()}>
+                         <div className="flex justify-between items-center mb-4">
+                            <h3 className="text-xl font-semibold text-purple-300">Esqueletos de Steps ({selectedTechnology})</h3>
+                            <button onClick={() => handleCopy(stepDefContent)} title="Copiar Código" className="text-gray-400 hover:text-white transition">
+                                {copied ? <ClipboardCheckIcon className="w-5 h-5 text-green-400" /> : <ClipboardIcon className="w-5 h-5" />}
+                            </button>
+                        </div>
+                        <div className="max-h-[70vh] overflow-y-auto pr-2">
+                           <pre className="text-sm text-gray-300 whitespace-pre-wrap font-mono bg-gray-900/50 p-3 rounded-md">{stepDefContent}</pre>
+                        </div>
+                         <div className="flex justify-end mt-6">
+                            <button onClick={() => setIsStepDefModalOpen(false)} className="bg-gray-600 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded">Fechar</button>
+                        </div>
+                    </div>
+                 </div>
             )}
         </div>
     );
