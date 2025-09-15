@@ -118,6 +118,13 @@ export const TemplateIcon = ({ className }: { className?: string }) => (
     </svg>
 );
 
+export const ViewBoardsIcon = ({ className }: { className?: string }) => (
+    <svg xmlns="http://www.w3.org/2000/svg" className={className} fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M9 17v-2m3 2v-4m3 4v-6m2 10V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2h14a2 2 0 002-2z" />
+    </svg>
+);
+
+
 export const personaDetails: Record<Persona, { icon: React.FC<{className?: string}>; color: string; name: string }> = {
     [Persona.Dev]: { icon: CodeIcon, color: 'border-cyan-500', name: Persona.Dev },
     [Persona.QA]: { icon: BugIcon, color: 'border-red-500', name: Persona.QA },

@@ -1,7 +1,7 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { Persona, ParsedStory, RedmineIssue, ConversationTurn, ComplexityAnalysisResult, SplitStory } from './types';
-import { generateInitialQuestions, suggestNewStoryVersion, generateFollowUpQuestion, generateNewStory, refineSuggestedStory, generateTestScenarios, analyzeStoryComplexity, generateStoriesFromTranscript } from './services/geminiService';
-import { personaDetails, UserIcon, BookOpenIcon, XIcon, MenuIcon, SparklesIcon, HomeIcon, ClipboardIcon, ClipboardCheckIcon, ClipboardListIcon, InformationCircleIcon, ScaleIcon, MicrophoneIcon, TemplateIcon } from './components/icons';
+import { generateInitialQuestions, suggestNewStoryVersion, generateFollowUpQuestion, generateNewStory, refineSuggestedStory, generateTestScenarios, analyzeStoryComplexity, generateStoriesFromTranscript, generatePrototype } from './services/geminiService';
+import { personaDetails, UserIcon, BookOpenIcon, XIcon, MenuIcon, SparklesIcon, HomeIcon, ClipboardIcon, ClipboardCheckIcon, ClipboardListIcon, InformationCircleIcon, ScaleIcon, MicrophoneIcon, TemplateIcon, ViewBoardsIcon } from './components/icons';
 
 const personaToKey = (p: Persona): string => {
     switch(p) {
@@ -14,7 +14,7 @@ const personaToKey = (p: Persona): string => {
     }
 };
 
-const Header = ({ onRestart, showRestart, text, onShowModelModal, showModelButton }: { onRestart: () => void; showRestart: boolean; text: string; onShowModelModal: () => void; showModelButton: boolean; }) => (
+const Header = ({ onRestart, showRestart, text, onShowModelModal, onShowPrototypeModal, showModelButtons }: { onRestart: () => void; showRestart: boolean; text: string; onShowModelModal: () => void; onShowPrototypeModal: () => void; showModelButtons: boolean; }) => (
     <header className="relative bg-gray-900/80 backdrop-blur-sm p-4 border-b border-gray-700 sticky top-0 z-20 flex items-center justify-center h-[85px]">
         <div className="text-center">
             <h1 className="text-2xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-purple-400 to-cyan-400">
@@ -23,15 +23,25 @@ const Header = ({ onRestart, showRestart, text, onShowModelModal, showModelButto
             <p className="text-center text-gray-400 text-sm mt-1">Gere e refine histórias de usuário com o poder da IA</p>
         </div>
         <div className="absolute right-4 top-1/2 -translate-y-1/2 flex items-center gap-4">
-             {showModelButton && (
-                <button 
-                    onClick={onShowModelModal}
-                    className="flex items-center gap-2 text-sm text-gray-300 hover:text-purple-300 transition-colors py-1 px-3 rounded-md hover:bg-gray-700/50"
-                    title="Definir modelo de história"
-                >
-                    <TemplateIcon className="w-5 h-5" />
-                    <span>Definir Modelo</span>
-                </button>
+             {showModelButtons && (
+                <>
+                    <button 
+                        onClick={onShowModelModal}
+                        className="flex items-center gap-2 text-sm text-gray-300 hover:text-purple-300 transition-colors py-1 px-3 rounded-md hover:bg-gray-700/50"
+                        title="Definir modelo de história"
+                    >
+                        <TemplateIcon className="w-5 h-5" />
+                        <span>Definir Modelo</span>
+                    </button>
+                     <button 
+                        onClick={onShowPrototypeModal}
+                        className="flex items-center gap-2 text-sm text-gray-300 hover:text-purple-300 transition-colors py-1 px-3 rounded-md hover:bg-gray-700/50"
+                        title="Definir modelo de protótipo"
+                    >
+                        <ViewBoardsIcon className="w-5 h-5" />
+                        <span>Definir Protótipo</span>
+                    </button>
+                </>
             )}
             {showRestart && (
                 <button 
@@ -79,9 +89,10 @@ const FeaturesModal = ({ onClose }: { onClose: () => void; }) => (
                 </ul>
             </div>
             <div>
-                <h4 className="font-bold text-cyan-300">Geração de História</h4>
+                <h4 className="font-bold text-cyan-300">Geração de Artefatos</h4>
                 <ul className="list-disc list-inside space-y-1 mt-1">
-                    <li><span className="font-semibold">Modelo Global de História:</span> Defina um modelo de formatação que a IA usará para todas as histórias geradas na sessão.</li>
+                    <li><span className="font-semibold">Modelo Global de História:</span> Defina um modelo de formatação que a IA usará para todas as histórias geradas.</li>
+                    <li><span className="font-semibold">Modelo Global de Protótipo:</span> Defina um código de exemplo para que a IA siga o seu design system.</li>
                     <li><span className="font-semibold">Revisão Humana:</span> Edite a história gerada pela IA antes de iniciar o refinamento.</li>
                 </ul>
             </div>
@@ -101,16 +112,17 @@ const FeaturesModal = ({ onClose }: { onClose: () => void; }) => (
                 </ul>
             </div>
              <div>
-                <h4 className="font-bold text-cyan-300">Geração de Cenários de Teste</h4>
+                <h4 className="font-bold text-cyan-300">Ferramentas de Validação</h4>
                 <ul className="list-disc list-inside space-y-1 mt-1">
-                    <li><span className="font-semibold">Validação Integrada:</span> Gere cenários de teste (caminho feliz, casos de borda, negativos) para a versão atual da história a qualquer momento.</li>
+                    <li><span className="font-semibold">Geração de Cenários de Teste:</span> Gere cenários de teste (caminho feliz, casos de borda, negativos) para a versão atual da história a qualquer momento.</li>
+                     <li><span className="font-semibold">Prototipagem Visual com IA:</span> Crie um protótipo visual (HTML/Tailwind CSS) a partir da história de usuário para acelerar o alinhamento.</li>
                 </ul>
             </div>
             <div>
                 <h4 className="font-bold text-cyan-300">Utilidades</h4>
                 <ul className="list-disc list-inside space-y-1 mt-1">
                     <li><span className="font-semibold">Acesso Rápido:</span> Visualize a história original em um modal a qualquer momento.</li>
-                    <li><span className="font-semibold">Copiar para a Área de Transferência:</span> Copie facilmente a história original, perguntas, sugestões e cenários de teste.</li>
+                    <li><span className="font-semibold">Copiar para a Área de Transferência:</span> Copie facilmente a história original, perguntas, sugestões, testes e protótipos.</li>
                      <li><span className="font-semibold">Navegação Inteligente:</span> Reinicie o processo ou volte para a seleção de histórias quebradas com um botão que se adapta ao contexto.</li>
                 </ul>
             </div>
@@ -594,6 +606,38 @@ const ModelStoryModal = ({ initialModel, onSave, onClose }: { initialModel: stri
     );
 };
 
+const PrototypeModelModal = ({ initialModel, onSave, onClose }: { initialModel: string; onSave: (model: string) => void; onClose: () => void; }) => {
+    const [currentModel, setCurrentModel] = useState(initialModel);
+
+    const handleSave = () => {
+        onSave(currentModel);
+        onClose();
+    };
+
+    return (
+        <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4" onClick={onClose}>
+            <div className="bg-gray-800 rounded-lg shadow-xl max-w-2xl w-full p-6 border border-gray-700 relative animate-fade-in-up" onClick={e => e.stopPropagation()}>
+                <div className="flex items-center gap-3 mb-4">
+                    <ViewBoardsIcon className="w-8 h-8 text-cyan-300" />
+                    <h3 className="text-xl font-semibold text-purple-300">Definir Modelo de Protótipo Global</h3>
+                </div>
+                <p className="text-gray-400 mb-4 text-sm">Cole um trecho de código HTML com classes Tailwind CSS aqui. A IA usará este código como referência de estilo e estrutura para todos os protótipos gerados nesta sessão.</p>
+                <textarea
+                    value={currentModel}
+                    onChange={(e) => setCurrentModel(e.target.value)}
+                    rows={12}
+                    className="w-full p-2 bg-gray-900 border border-gray-700 rounded-md focus:ring-2 focus:ring-purple-500 transition text-gray-300 resize-y font-mono text-sm"
+                    placeholder="Cole o código do protótipo modelo aqui..."
+                />
+                <div className="flex justify-end gap-3 mt-4">
+                    <button onClick={onClose} className="bg-gray-600 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded transition">Cancelar</button>
+                    <button onClick={handleSave} className="bg-purple-600 hover:bg-purple-700 text-white font-bold py-2 px-4 rounded transition">Salvar Modelo</button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
 
 const App: React.FC = () => {
     type AppState = 'home' | 'refining' | 'generating' | 'transcribing' | 'loading_generation' | 'loading_transcription' | 'reviewing' | 'configuring' | 'loading' | 'planning' | 'error' | 'analyzing_complexity' | 'story_selection';
@@ -620,6 +664,10 @@ const App: React.FC = () => {
     const [splitStories, setSplitStories] = useState<SplitStory[]>([]);
     const [modelStory, setModelStory] = useState<string>('');
     const [isModelStoryModalOpen, setIsModelStoryModalOpen] = useState(false);
+    const [prototypeModel, setPrototypeModel] = useState<string>('');
+    const [isPrototypeModelModalOpen, setIsPrototypeModelModalOpen] = useState(false);
+    const [suggestedPrototype, setSuggestedPrototype] = useState<string | null>(null);
+    const [isGeneratingPrototype, setIsGeneratingPrototype] = useState(false);
     
     const conversationEndRef = useRef<HTMLDivElement>(null);
 
@@ -752,6 +800,7 @@ const App: React.FC = () => {
         setIsSuggesting(true);
         setSuggestedStory(null);
         setTestScenarios(null);
+        setSuggestedPrototype(null);
         setError(null);
         try {
             const lastTurn = conversation[conversation.length - 1];
@@ -773,6 +822,7 @@ const App: React.FC = () => {
             const refined = await refineSuggestedStory(suggestedStory, refinementPrompt);
             setSuggestedStory(refined);
             setTestScenarios(null);
+            setSuggestedPrototype(null);
             setRefinementPrompt('');
         } catch (err) {
             setError(err instanceof Error ? err.message : 'Falha ao refinar a sugestão.');
@@ -813,6 +863,22 @@ const App: React.FC = () => {
         }
     }, [originalStory, suggestedStory]);
 
+    const handleGeneratePrototype = useCallback(async () => {
+        if (!originalStory) return;
+        setIsGeneratingPrototype(true);
+        setSuggestedPrototype(null);
+        setError(null);
+        try {
+            const storyToPrototype = suggestedStory ?? originalStory.description;
+            const prototypeCode = await generatePrototype(storyToPrototype, prototypeModel);
+            setSuggestedPrototype(prototypeCode);
+        } catch (err) {
+             setError(err instanceof Error ? err.message : 'Falha ao gerar o protótipo.');
+        } finally {
+            setIsGeneratingPrototype(false);
+        }
+    }, [originalStory, suggestedStory, prototypeModel]);
+
     const handleAcceptSplit = useCallback(() => {
         if (complexityAnalysis?.suggestedStories) {
             setSplitStories(complexityAnalysis.suggestedStories);
@@ -836,6 +902,8 @@ const App: React.FC = () => {
         setCopiedTurnId(null);
         setComplexityAnalysis(null);
         setIsAnalyzingComplexity(false);
+        setSuggestedPrototype(null);
+        setIsGeneratingPrototype(false);
         
         setOriginalStory(story);
         setAppState('configuring');
@@ -862,6 +930,10 @@ const App: React.FC = () => {
         setComplexityAnalysis(null);
         setIsAnalyzingComplexity(false);
         setModelStory('');
+        setPrototypeModel('');
+        setIsPrototypeModelModalOpen(false);
+        setSuggestedPrototype(null);
+        setIsGeneratingPrototype(false);
     };
 
     const handleRestart = () => {
@@ -887,7 +959,7 @@ const App: React.FC = () => {
 
     const headerAction = isRefiningSplitStory ? handleBackToSelection : handleRestart;
     const headerText = isRefiningSplitStory ? 'Voltar para Seleção' : 'Recomeçar';
-    const showModelButton = ['generating', 'transcribing', 'reviewing', 'planning', 'story_selection', 'configuring', 'refining'].includes(appState);
+    const showModelButtons = ['generating', 'transcribing', 'reviewing', 'planning', 'story_selection', 'configuring', 'refining'].includes(appState);
 
     if (appState === 'error') {
         return (
@@ -1072,7 +1144,32 @@ const App: React.FC = () => {
                                     </div>
                                 )}
                             </div>
-                            {error && !isSuggesting && !isRefining && !isGeneratingScenarios && <p className="text-red-400 mt-2 text-sm text-center p-2 bg-red-900/20 rounded-md">{error}</p>}
+                             <div className="bg-gray-800/50 rounded-lg p-4 lg:p-6 border border-gray-700">
+                                <h3 className="text-lg font-semibold text-blue-300 mb-4 flex items-center gap-2">
+                                    <ViewBoardsIcon className="w-6 h-6"/>
+                                    Prototipagem Visual
+                                </h3>
+                                <button
+                                    onClick={handleGeneratePrototype}
+                                    disabled={isGeneratingPrototype}
+                                    className="w-full mb-4 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-900 disabled:cursor-not-allowed text-white font-bold py-2 px-4 rounded-md transition-transform transform hover:scale-105"
+                                >
+                                    Sugerir Protótipo Visual
+                                </button>
+                                {isGeneratingPrototype && <Loader text="A IA está desenhando o protótipo..." />}
+                                {suggestedPrototype && !isGeneratingPrototype && (
+                                    <div>
+                                         <div className="flex justify-between items-center mb-2">
+                                             <h4 className="font-semibold text-md">Código do Protótipo:</h4>
+                                             <button onClick={() => handleCopy(suggestedPrototype)} title="Copiar Código" className="text-gray-400 hover:text-white transition">
+                                                 {copied ? <ClipboardCheckIcon className="w-5 h-5 text-green-400" /> : <ClipboardIcon className="w-5 h-5" />}
+                                             </button>
+                                         </div>
+                                         <pre className="text-sm text-gray-300 whitespace-pre-wrap font-mono bg-gray-900/50 p-3 rounded-md max-h-60 overflow-y-auto">{suggestedPrototype}</pre>
+                                    </div>
+                                )}
+                            </div>
+                            {error && !isSuggesting && !isRefining && !isGeneratingScenarios && !isGeneratingPrototype && <p className="text-red-400 mt-2 text-sm text-center p-2 bg-red-900/20 rounded-md">{error}</p>}
                         </div>
                     </main>
                 );
@@ -1089,7 +1186,8 @@ const App: React.FC = () => {
                 showRestart={appState !== 'home'} 
                 text={headerText}
                 onShowModelModal={() => setIsModelStoryModalOpen(true)}
-                showModelButton={showModelButton}
+                onShowPrototypeModal={() => setIsPrototypeModelModalOpen(true)}
+                showModelButtons={showModelButtons}
             />
             {renderContent()}
             {isOriginalStoryModalOpen && originalStory && (
@@ -1113,6 +1211,13 @@ const App: React.FC = () => {
                     onSave={(model) => setModelStory(model)}
                 />
              )}
+            {isPrototypeModelModalOpen && (
+                <PrototypeModelModal
+                    initialModel={prototypeModel}
+                    onClose={() => setIsPrototypeModelModalOpen(false)}
+                    onSave={(model) => setPrototypeModel(model)}
+                />
+            )}
         </div>
     );
 };

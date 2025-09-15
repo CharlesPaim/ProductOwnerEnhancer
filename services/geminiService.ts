@@ -404,3 +404,43 @@ export const generateStoriesFromTranscript = async (transcript: string, modelSto
         throw new Error("Falha ao analisar a transcrição e gerar histórias.");
     }
 };
+
+export const generatePrototype = async (storyDescription: string, modelPrototype?: string): Promise<string> => {
+    try {
+        const modelPrototypePrompt = modelPrototype
+            ? `Use o seguinte código como um modelo forte para a estrutura de componentes, estilo e classes Tailwind CSS: \n---\n${modelPrototype}\n---`
+            : "Gere um código limpo e semântico usando HTML e classes do Tailwind CSS.";
+
+        const prompt = `
+        Você é um Desenvolvedor Front-end Sênior, especialista em criar interfaces de usuário acessíveis e bem estruturadas com HTML e Tailwind CSS.
+        Sua tarefa é ler a seguinte história de usuário e gerar um código de protótipo visual para ela.
+
+        **História de Usuário para Prototipagem:**
+        ---
+        ${storyDescription}
+        ---
+
+        **Diretrizes de Estilo e Estrutura:**
+        ${modelPrototypePrompt}
+
+        **Instruções:**
+        1. Analise os critérios de aceitação para entender os elementos da interface (botões, formulários, textos, etc.).
+        2. Crie um protótipo visual usando apenas HTML e classes do Tailwind CSS.
+        3. O código deve ser contido em um único bloco, sem dependências externas de JS ou CSS além do Tailwind.
+        4. Foque em representar visualmente a funcionalidade descrita. O protótipo não precisa ser funcional.
+        5. Se a história descreve um formulário, inclua labels, inputs apropriados e um botão de submissão.
+
+        Produza apenas o bloco de código HTML/CSS, sem nenhuma explicação, comentário extra ou a tag \`\`\`html.
+        `;
+
+        const response = await ai.models.generateContent({
+            model: model,
+            contents: prompt,
+        });
+
+        return response.text.trim();
+    } catch (error) {
+        console.error("Error generating prototype:", error);
+        throw new Error("Falha ao gerar o protótipo visual.");
+    }
+};
