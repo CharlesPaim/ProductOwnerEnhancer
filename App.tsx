@@ -1,8 +1,8 @@
 
 import React, { useState, useCallback, useRef, useEffect } from 'react';
-import { Persona, ParsedStory, RedmineIssue, ConversationTurn, ComplexityAnalysisResult, SplitStory, BddFeatureSuggestion } from './types';
-import { generateInitialQuestions, suggestNewStoryVersion, generateFollowUpQuestion, generateNewStory, refineSuggestedStory, generateTestScenarios, analyzeStoryComplexity, generateStoriesFromTranscript, generatePrototype, generateBddScenarios, generateBddFollowUpQuestion, generateGherkinFromConversation, generatePoChecklist, generateStepDefinitions, convertDocumentToBdd, analyzeAndBreakdownDocument, analyzePlanningTranscript, analyzeHomologationTranscript } from './services/geminiService';
-import { personaDetails, UserIcon, BookOpenIcon, XIcon, MenuIcon, SparklesIcon, HomeIcon, ClipboardIcon, ClipboardCheckIcon, ClipboardListIcon, InformationCircleIcon, ScaleIcon, MicrophoneIcon, TemplateIcon, ViewBoardsIcon, DocumentTextIcon, CheckCircleIcon, PencilIcon, TrashIcon, CodeIcon, SwitchHorizontalIcon } from './components/icons';
+import { Persona, ParsedStory, RedmineIssue, ConversationTurn, ComplexityAnalysisResult, SplitStory, BddFeatureSuggestion, GherkinScenario } from './types';
+import { generateInitialQuestions, suggestNewStoryVersion, generateFollowUpQuestion, generateNewStory, refineSuggestedStory, generateTestScenarios, analyzeStoryComplexity, generateStoriesFromTranscript, generatePrototype, generateBddScenarios, generateBddFollowUpQuestion, generateGherkinFromConversation, generatePoChecklist, generateStepDefinitions, convertDocumentToBdd, analyzeAndBreakdownDocument, analyzePlanningTranscript, analyzeHomologationTranscript, generatePrototypeFromFeature, generateBddFollowUpQuestionForGroup, generateGherkinFromGroupConversation } from './services/geminiService';
+import { personaDetails, UserIcon, BookOpenIcon, XIcon, MenuIcon, SparklesIcon, HomeIcon, ClipboardIcon, ClipboardCheckIcon, ClipboardListIcon, InformationCircleIcon, ScaleIcon, MicrophoneIcon, TemplateIcon, ViewBoardsIcon, DocumentTextIcon, CheckCircleIcon, PencilIcon, TrashIcon, CodeIcon, SwitchHorizontalIcon, DownloadIcon } from './components/icons';
 
 type BddScenario = {
     id: number;
@@ -106,6 +106,7 @@ const FeaturesModal = ({ onClose }: { onClose: () => void; }) => (
                     <li><span className="font-semibold">Configuração Flexível:</span> Selecione as personas (Dev, QA, Arquiteto, UX, DevOps) e arraste para definir a ordem das perguntas.</li>
                     <li><span className="font-semibold">Perguntas Contextuais:</span> A IA faz perguntas sequenciais com base nas personas e na conversa.</li>
                     <li><span className="font-semibold">Análise de Complexidade (Anti-Épico):</span> Identifique histórias muito grandes e receba sugestões para quebrá-las. Refine cada nova história individualmente.</li>
+                    <li><span className="font-semibold">Planejamento BDD em Grupo:</span> Selecione múltiplos cenários para discuti-los em uma única sessão de planejamento, otimizando o tempo.</li>
                 </ul>
             </div>
             <div>
@@ -119,9 +120,9 @@ const FeaturesModal = ({ onClose }: { onClose: () => void; }) => (
                 <h4 className="font-bold text-cyan-300">Ferramentas de Validação e Suporte</h4>
                 <ul className="list-disc list-inside space-y-1 mt-1">
                     <li><span className="font-semibold">Geração de Cenários de Teste:</span> Gere cenários de teste (caminho feliz, casos de borda, negativos) para a versão atual da história a qualquer momento.</li>
-                     <li><span className="font-semibold">Prototipagem Visual com IA:</span> Crie um protótipo visual (HTML/Tailwind CSS) a partir da história de usuário para acelerar o alinhamento.</li>
+                     <li><span className="font-semibold">Prototipagem Visual com IA:</span> Crie um protótipo visual (HTML/Tailwind CSS) a partir da história de usuário ou de um arquivo .feature completo para acelerar o alinhamento. O protótipo é exibido em um modal com visualização ao vivo e opção de salvar como .html.</li>
                      <li><span className="font-semibold">Checklist de Pré-Homologação (BDD):</span> Gere um roteiro de teste em linguagem natural para o PO validar a entrega a partir do arquivo .feature.</li>
-                     <li><span className="font-semibold">Esqueletos de Steps (BDD):</span> Gere o código-esqueleto das Step Definitions (JS, Python, Java, PHP, C#) para acelerar a automação de testes.</li>
+                     <li><span className="font-semibold">Definições de Steps (BDD):</span> Gere o código completo das Step Definitions (JS, Python, Java, PHP, C#) para acelerar a automação de testes.</li>
                 </ul>
             </div>
             <div>
@@ -924,7 +925,7 @@ const App: React.FC = () => {
     const [featureDescription, setFeatureDescription] = useState<string>('');
     const [bddScenarios, setBddScenarios] = useState<BddScenario[]>([]);
     const [currentScenarioIndex, setCurrentScenarioIndex] = useState<number | null>(null);
-    const [generatedGherkin, setGeneratedGherkin] = useState<string | null>(null);
+    const [generatedSingleGherkin, setGeneratedSingleGherkin] = useState<string | null>(null);
     const [poChecklistContent, setPoChecklistContent] = useState<string | null>(null);
     const [stepDefContent, setStepDefContent] = useState<string | null>(null);
     const [selectedTechnology, setSelectedTechnology] = useState('JavaScript - Cypress');
@@ -933,6 +934,12 @@ const App: React.FC = () => {
     const [convertedFeatureFile, setConvertedFeatureFile] = useState('');
     const [poChecklistCache, setPoChecklistCache] = useState<{ featureContent: string; checklist: string; } | null>(null);
     const [stepDefCache, setStepDefCache] = useState<{ featureContent: string; technology: string; steps: string; } | null>(null);
+    
+    // New states for grouped planning
+    const [selectedScenarioIds, setSelectedScenarioIds] = useState<number[]>([]);
+    const [planningScope, setPlanningScope] = useState<'single' | 'group'>('single');
+    const [currentGroupIndexes, setCurrentGroupIndexes] = useState<number[]>([]);
+    const [generatedGroupGherkin, setGeneratedGroupGherkin] = useState<GherkinScenario[] | null>(null);
 
     // Shared planning state
     const [activePersonas, setActivePersonas] = useState<Persona[]>([]);
@@ -945,6 +952,7 @@ const App: React.FC = () => {
     const [isRefining, setIsRefining] = useState(false);
     const [isGeneratingScenarios, setIsGeneratingScenarios] = useState(false);
     const [isGeneratingPrototype, setIsGeneratingPrototype] = useState(false);
+    const [isGeneratingBddPrototype, setIsGeneratingBddPrototype] = useState(false);
     const [isAnalyzingComplexity, setIsAnalyzingComplexity] = useState(false);
     const [isGeneratingGherkin, setIsGeneratingGherkin] = useState(false);
     const [isGeneratingChecklist, setIsGeneratingChecklist] = useState(false);
@@ -957,6 +965,7 @@ const App: React.FC = () => {
     const [isTechSelectionModalOpen, setIsTechSelectionModalOpen] = useState(false);
     const [isPoChecklistModalOpen, setIsPoChecklistModalOpen] = useState(false);
     const [isStepDefModalOpen, setIsStepDefModalOpen] = useState(false);
+    const [isPrototypeModalOpen, setIsPrototypeModalOpen] = useState(false);
     const [refinementPrompt, setRefinementPrompt] = useState('');
     const [copied, setCopied] = useState(false);
     const [copiedTurnId, setCopiedTurnId] = useState<number | null>(null);
@@ -974,7 +983,8 @@ const App: React.FC = () => {
     const [complexityCache, setComplexityCache] = useState<{ description: string; result: ComplexityAnalysisResult; } | null>(null);
     const [testScenariosCache, setTestScenariosCache] = useState<{ description: string; scenarios: string; } | null>(null);
     const [prototypeCache, setPrototypeCache] = useState<{ description: string; model: string; prototype: string; } | null>(null);
-    const [gherkinCache, setGherkinCache] = useState<{ conversation: ConversationTurn[]; gherkin: string; } | null>(null);
+    const [bddPrototypeCache, setBddPrototypeCache] = useState<{ featureContent: string; model: string; prototype: string; } | null>(null);
+    const [gherkinCache, setGherkinCache] = useState<{ conversation: ConversationTurn[]; gherkin: string | GherkinScenario[]; } | null>(null);
 
     const conversationEndRef = useRef<HTMLDivElement>(null);
 
@@ -1129,12 +1139,37 @@ const App: React.FC = () => {
 
     const handleDetailScenario = useCallback((index: number) => {
         setGherkinCache(null);
+        setGeneratedSingleGherkin(null);
         setCurrentScenarioIndex(index);
         const scenario = bddScenarios[index];
         setOriginalStory({ title: scenario.title, description: `Este é um cenário para a funcionalidade: "${featureDescription}"` });
         setPlanningMode('bdd');
+        setPlanningScope('single');
         setAppState('configuring');
     }, [bddScenarios, featureDescription]);
+    
+    const handleDetailGroupedScenarios = useCallback(() => {
+        if (selectedScenarioIds.length === 0) return;
+
+        setGherkinCache(null);
+        setGeneratedGroupGherkin(null);
+        
+        const indexes: number[] = [];
+        const titles: string[] = [];
+        selectedScenarioIds.forEach(id => {
+            const index = bddScenarios.findIndex(s => s.id === id);
+            if (index > -1) {
+                indexes.push(index);
+                titles.push(bddScenarios[index].title);
+            }
+        });
+        
+        setCurrentGroupIndexes(indexes);
+        setOriginalStory({ title: `Detalhamento de Múltiplos Cenários`, description: `Funcionalidade: ${featureDescription}\n\nCenários:\n- ${titles.join('\n- ')}` });
+        setPlanningMode('bdd');
+        setPlanningScope('group');
+        setAppState('configuring');
+    }, [bddScenarios, featureDescription, selectedScenarioIds]);
 
     const handleReviewConfirm = useCallback(() => {
         if (!originalStory) return;
@@ -1142,10 +1177,16 @@ const App: React.FC = () => {
     }, [originalStory]);
 
     const handleStartPlanning = useCallback(async (selectedPersonas: Persona[]) => {
-        const contextStory = planningMode === 'bdd' && currentScenarioIndex !== null 
-            ? { title: bddScenarios[currentScenarioIndex].title, description: featureDescription }
-            : originalStory;
-
+        let contextStory: ParsedStory | null = null;
+        if (planningMode === 'story') {
+            contextStory = originalStory;
+        } else if (planningScope === 'single' && currentScenarioIndex !== null) {
+            contextStory = { title: bddScenarios[currentScenarioIndex].title, description: featureDescription };
+        } else if (planningScope === 'group' && currentGroupIndexes.length > 0) {
+            const titles = currentGroupIndexes.map(i => bddScenarios[i].title);
+            contextStory = { title: `Grupo de cenários: ${titles.join(', ')}`, description: featureDescription };
+        }
+        
         if (!contextStory || selectedPersonas.length === 0) return;
         
         setAppState('loading');
@@ -1165,7 +1206,7 @@ const App: React.FC = () => {
             setError(err instanceof Error ? err.message : 'Ocorreu um erro desconhecido.');
             setAppState('error');
         }
-    }, [originalStory, planningMode, currentScenarioIndex, bddScenarios, featureDescription]);
+    }, [originalStory, planningMode, currentScenarioIndex, bddScenarios, featureDescription, planningScope, currentGroupIndexes]);
 
     const handleCancelConfiguration = useCallback(() => {
         if (planningMode === 'bdd') {
@@ -1176,17 +1217,18 @@ const App: React.FC = () => {
             setAppState('home');
         }
         setOriginalStory(null);
+        setSelectedScenarioIds([]);
     }, [splitStories, planningMode]);
 
     const submitAnswer = useCallback(async (answer: string) => {
-        const contextStory = planningMode === 'bdd' && currentScenarioIndex !== null
-            ? { title: bddScenarios[currentScenarioIndex].title, description: featureDescription }
-            : originalStory;
+        const contextStory = originalStory;
 
         if (!contextStory || activePersonas.length === 0) return;
 
         setIsAnswering(true);
         setGherkinCache(null);
+        setGeneratedSingleGherkin(null);
+        setGeneratedGroupGherkin(null);
         
         const updatedConversation = conversation.map((turn, index) => 
             index === conversation.length - 1 ? { ...turn, answer } : turn
@@ -1200,7 +1242,9 @@ const App: React.FC = () => {
             const nextPersona = activePersonas[(currentPersonaIndex + 1) % activePersonas.length];
 
             const nextQuestionText = planningMode === 'bdd'
-                ? await generateBddFollowUpQuestion(featureDescription, contextStory.title, updatedConversation, nextPersona)
+                ? planningScope === 'single'
+                    ? await generateBddFollowUpQuestion(featureDescription, contextStory.title, updatedConversation, nextPersona)
+                    : await generateBddFollowUpQuestionForGroup(featureDescription, currentGroupIndexes.map(i => bddScenarios[i].title), updatedConversation, nextPersona)
                 : await generateFollowUpQuestion(contextStory, updatedConversation, nextPersona);
                 
             const nextTurn: ConversationTurn = { id: Date.now(), persona: nextPersona, question: nextQuestionText };
@@ -1211,7 +1255,7 @@ const App: React.FC = () => {
         } finally {
             setIsAnswering(false);
         }
-    }, [conversation, originalStory, activePersonas, planningMode, currentScenarioIndex, bddScenarios, featureDescription]);
+    }, [conversation, originalStory, activePersonas, planningMode, featureDescription, planningScope, currentGroupIndexes, bddScenarios]);
 
     const handleAnswerSubmit = () => {
         if (!currentAnswer.trim() || isAnswering) return;
@@ -1269,54 +1313,86 @@ const App: React.FC = () => {
     }, [suggestedStory, refinementPrompt]);
 
     const handleGenerateGherkin = useCallback(async () => {
-        if (planningMode !== 'bdd' || currentScenarioIndex === null || conversation.length === 0) return;
+        if (planningMode !== 'bdd' || conversation.length === 0) return;
         
         const lastTurn = conversation[conversation.length - 1];
         const convForGherkin = lastTurn.answer ? conversation : conversation.slice(0, -1);
-
         if (convForGherkin.length === 0) {
             setError("Responda a pelo menos uma pergunta para gerar o Gherkin.");
             return;
         }
-        
-        if (gherkinCache && JSON.stringify(gherkinCache.conversation) === JSON.stringify(convForGherkin)) {
-            setGeneratedGherkin(gherkinCache.gherkin);
-            return;
-        }
 
+        if (gherkinCache && JSON.stringify(gherkinCache.conversation) === JSON.stringify(convForGherkin)) {
+            if (planningScope === 'single' && typeof gherkinCache.gherkin === 'string') {
+                setGeneratedSingleGherkin(gherkinCache.gherkin);
+                return;
+            } else if (planningScope === 'group' && Array.isArray(gherkinCache.gherkin)) {
+                setGeneratedGroupGherkin(gherkinCache.gherkin);
+                return;
+            }
+        }
+        
         setIsGeneratingGherkin(true);
-        setGeneratedGherkin(null);
+        setGeneratedSingleGherkin(null);
+        setGeneratedGroupGherkin(null);
         setError(null);
+        
         try {
-            const scenario = bddScenarios[currentScenarioIndex];
-            const gherkin = await generateGherkinFromConversation(featureDescription, scenario.title, convForGherkin);
-            setGeneratedGherkin(gherkin);
-            setGherkinCache({ conversation: convForGherkin, gherkin });
+            if (planningScope === 'single' && currentScenarioIndex !== null) {
+                const scenario = bddScenarios[currentScenarioIndex];
+                const gherkin = await generateGherkinFromConversation(featureDescription, scenario.title, convForGherkin);
+                setGeneratedSingleGherkin(gherkin);
+                setGherkinCache({ conversation: convForGherkin, gherkin });
+            } else if (planningScope === 'group' && currentGroupIndexes.length > 0) {
+                const scenarioTitles = currentGroupIndexes.map(i => bddScenarios[i].title);
+                const gherkins = await generateGherkinFromGroupConversation(featureDescription, scenarioTitles, convForGherkin);
+                setGeneratedGroupGherkin(gherkins);
+                setGherkinCache({ conversation: convForGherkin, gherkin: gherkins });
+            }
         } catch (err) {
              setError(err instanceof Error ? err.message : 'Falha ao gerar o Gherkin.');
         } finally {
             setIsGeneratingGherkin(false);
         }
-    }, [planningMode, currentScenarioIndex, conversation, featureDescription, bddScenarios, gherkinCache]);
+    }, [planningMode, conversation, gherkinCache, planningScope, currentScenarioIndex, bddScenarios, featureDescription, currentGroupIndexes]);
 
-    const handleCompleteScenario = useCallback(() => {
-        if (currentScenarioIndex === null || !generatedGherkin) return;
-        
+    const handleCompleteBddPlanning = useCallback(() => {
         const updatedScenarios = [...bddScenarios];
-        updatedScenarios[currentScenarioIndex] = {
-            ...updatedScenarios[currentScenarioIndex],
-            gherkin: generatedGherkin,
-            completed: true
-        };
-        setBddScenarios(updatedScenarios);
+        let scenariosUpdated = false;
 
-        // Reset planning state for next scenario
+        if (planningScope === 'single' && currentScenarioIndex !== null && generatedSingleGherkin) {
+            updatedScenarios[currentScenarioIndex] = {
+                ...updatedScenarios[currentScenarioIndex],
+                gherkin: generatedSingleGherkin,
+                completed: true
+            };
+            scenariosUpdated = true;
+        } else if (planningScope === 'group' && generatedGroupGherkin) {
+            generatedGroupGherkin.forEach(result => {
+                const index = bddScenarios.findIndex(s => s.title === result.title);
+                if (index > -1) {
+                    updatedScenarios[index] = {
+                        ...updatedScenarios[index],
+                        gherkin: result.gherkin,
+                        completed: true,
+                    };
+                }
+            });
+            scenariosUpdated = true;
+        }
+        
+        if (scenariosUpdated) {
+            setBddScenarios(updatedScenarios);
+        }
+
         setConversation([]);
         setCurrentScenarioIndex(null);
-        setGeneratedGherkin(null);
-        
+        setCurrentGroupIndexes([]);
+        setGeneratedSingleGherkin(null);
+        setGeneratedGroupGherkin(null);
+        setSelectedScenarioIds([]);
         setAppState('bdd_scenarios');
-    }, [currentScenarioIndex, generatedGherkin, bddScenarios]);
+    }, [currentScenarioIndex, generatedSingleGherkin, bddScenarios, planningScope, generatedGroupGherkin]);
     
     const handleGenerateScenarios = useCallback(async () => {
         if (!originalStory) return;
@@ -1371,6 +1447,7 @@ const App: React.FC = () => {
 
         if (prototypeCache && prototypeCache.description === storyToPrototype && prototypeCache.model === modelToUse) {
             setSuggestedPrototype(prototypeCache.prototype);
+            setIsPrototypeModalOpen(true);
             return;
         }
 
@@ -1381,12 +1458,37 @@ const App: React.FC = () => {
             const prototypeCode = await generatePrototype(storyToPrototype, modelToUse);
             setSuggestedPrototype(prototypeCode);
             setPrototypeCache({ description: storyToPrototype, model: modelToUse, prototype: prototypeCode });
+            setIsPrototypeModalOpen(true);
         } catch (err) {
              setError(err instanceof Error ? err.message : 'Falha ao gerar o protótipo.');
         } finally {
             setIsGeneratingPrototype(false);
         }
     }, [originalStory, suggestedStory, prototypeModel, localPrototypeModel, prototypeCache]);
+
+    const handleGenerateBddPrototype = useCallback(async (featureFileContent: string) => {
+        const modelToUse = localPrototypeModel || prototypeModel;
+
+        if (bddPrototypeCache && bddPrototypeCache.featureContent === featureFileContent && bddPrototypeCache.model === modelToUse) {
+            setSuggestedPrototype(bddPrototypeCache.prototype);
+            setIsPrototypeModalOpen(true);
+            return;
+        }
+
+        setIsGeneratingBddPrototype(true);
+        setSuggestedPrototype(null);
+        setError(null);
+        try {
+            const prototypeCode = await generatePrototypeFromFeature(featureFileContent, modelToUse);
+            setSuggestedPrototype(prototypeCode);
+            setBddPrototypeCache({ featureContent: featureFileContent, model: modelToUse, prototype: prototypeCode });
+            setIsPrototypeModalOpen(true);
+        } catch (err) {
+             setError(err instanceof Error ? err.message : 'Falha ao gerar o protótipo.');
+        } finally {
+            setIsGeneratingBddPrototype(false);
+        }
+    }, [prototypeModel, localPrototypeModel, bddPrototypeCache]);
 
     const handleGeneratePoChecklist = useCallback(async (featureFileContent: string) => {
         if (poChecklistCache && poChecklistCache.featureContent === featureFileContent) {
@@ -1426,7 +1528,7 @@ const App: React.FC = () => {
             setStepDefCache({ featureContent: featureFileContent, technology: selectedTechnology, steps });
             setIsStepDefModalOpen(true);
         } catch (err) {
-            setError(err instanceof Error ? err.message : 'Falha ao gerar os steps.');
+            setError(err instanceof Error ? err.message : 'Falha ao gerar as definições de steps.');
         } finally {
             setIsGeneratingSteps(false);
         }
@@ -1474,7 +1576,7 @@ const App: React.FC = () => {
         setFeatureDescription('');
         setBddScenarios([]);
         setCurrentScenarioIndex(null);
-        setGeneratedGherkin(null);
+        setGeneratedSingleGherkin(null);
         setPoChecklistContent(null);
         setStepDefContent(null);
         setDocumentToConvert('');
@@ -1488,6 +1590,7 @@ const App: React.FC = () => {
         setIsRefining(false);
         setIsGeneratingScenarios(false);
         setIsGeneratingPrototype(false);
+        setIsGeneratingBddPrototype(false);
         setIsAnalyzingComplexity(false);
         setIsGeneratingGherkin(false);
         setIsGeneratingChecklist(false);
@@ -1498,6 +1601,7 @@ const App: React.FC = () => {
         setIsTechSelectionModalOpen(false);
         setIsPoChecklistModalOpen(false);
         setIsStepDefModalOpen(false);
+        setIsPrototypeModalOpen(false);
         setRefinementPrompt('');
         setCopied(false);
         setCopiedTurnId(null);
@@ -1512,10 +1616,15 @@ const App: React.FC = () => {
         setConfirmationAction(null);
         setPoChecklistCache(null);
         setStepDefCache(null);
+        setSelectedScenarioIds([]);
+        setPlanningScope('single');
+        setCurrentGroupIndexes([]);
+        setGeneratedGroupGherkin(null);
         // Reset Caches
         setComplexityCache(null);
         setTestScenariosCache(null);
         setPrototypeCache(null);
+        setBddPrototypeCache(null);
         setGherkinCache(null);
     };
 
@@ -1573,6 +1682,62 @@ const App: React.FC = () => {
     }
 
     const currentTurn = conversation[conversation.length - 1];
+
+    const PrototypeModal = ({ prototypeCode, onClose, title }: { prototypeCode: string; onClose: () => void; title: string; }) => {
+        const [activeTab, setActiveTab] = useState<'preview' | 'code'>('preview');
+        const [copied, setCopied] = useState(false);
+    
+        const handleCopy = () => {
+            navigator.clipboard.writeText(prototypeCode);
+            setCopied(true);
+            setTimeout(() => setCopied(false), 2000);
+        };
+
+        const handleSave = () => {
+            const blob = new Blob([prototypeCode], { type: 'text/html' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'prototype.html';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        };
+    
+        return (
+            <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4" onClick={onClose}>
+                <div className="bg-gray-800 rounded-lg shadow-xl max-w-4xl w-full h-[85vh] flex flex-col p-6 border border-gray-700 relative animate-fade-in-up" onClick={e => e.stopPropagation()}>
+                    <button onClick={onClose} className="absolute top-4 right-4 text-gray-400 hover:text-white p-1 rounded-full hover:bg-gray-700 z-20"><XIcon className="w-6 h-6" /></button>
+                    <h3 className="text-xl font-semibold text-purple-300 mb-4 pr-10">{title}</h3>
+                    <div className="flex border-b border-gray-700 mb-4">
+                        <button className={`py-2 px-4 text-sm font-medium ${activeTab === 'preview' ? 'text-cyan-300 border-b-2 border-cyan-300' : 'text-gray-400'}`} onClick={() => setActiveTab('preview')}>Visualização</button>
+                        <button className={`py-2 px-4 text-sm font-medium ${activeTab === 'code' ? 'text-cyan-300 border-b-2 border-cyan-300' : 'text-gray-400'}`} onClick={() => setActiveTab('code')}>Código</button>
+                    </div>
+                    <div className="flex-grow overflow-auto relative">
+                        {activeTab === 'preview' && (
+                            <iframe srcDoc={prototypeCode} title="Prototype Preview" className="w-full h-full bg-white rounded-md" sandbox="allow-scripts" />
+                        )}
+                        {activeTab === 'code' && (
+                            <div className="relative h-full">
+                                <button onClick={handleCopy} title="Copiar Código" className="absolute top-2 right-2 text-gray-400 hover:text-white transition bg-gray-900/50 p-1.5 rounded-md">
+                                    {copied ? <ClipboardCheckIcon className="w-5 h-5 text-green-400" /> : <ClipboardIcon className="w-5 h-5" />}
+                                </button>
+                                <pre className="text-sm text-gray-300 whitespace-pre-wrap font-mono bg-gray-900/50 p-4 rounded-md h-full overflow-auto">{prototypeCode}</pre>
+                            </div>
+                        )}
+                    </div>
+                     <div className="flex justify-end gap-3 mt-4 pt-4 border-t border-gray-700">
+                        <button onClick={onClose} className="bg-gray-600 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded transition">Fechar</button>
+                        <button onClick={handleSave} className="flex items-center gap-2 bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded transition">
+                            <DownloadIcon className="w-5 h-5" />
+                            Salvar como HTML
+                        </button>
+                    </div>
+                </div>
+            </div>
+        );
+    };
 
     const renderContent = () => {
         switch (appState) {
@@ -1651,14 +1816,28 @@ const App: React.FC = () => {
                         handleEdit(bddScenarios.length);
                     };
 
+                    const handleToggleSelection = (id: number) => {
+                        setSelectedScenarioIds(prev =>
+                            prev.includes(id) ? prev.filter(scenarioId => scenarioId !== id) : [...prev, id]
+                        );
+                    };
+
                     return (
                         <div className="flex flex-col items-center justify-center min-h-screen p-4 -mt-20">
-                            <div className="w-full max-w-3xl bg-gray-800 rounded-lg shadow-xl p-6">
+                            <div className="w-full max-w-4xl bg-gray-800 rounded-lg shadow-xl p-6">
                                 <h2 className="text-xl font-semibold mb-2 text-gray-200">Cenários para a Feature</h2>
-                                <p className="text-gray-400 mb-4 text-sm">Revise, edite, adicione ou remova cenários. Depois, clique em "Detalhar Cenário" para iniciar a sessão de planejamento para cada um.</p>
+                                <p className="text-gray-400 mb-4 text-sm">Revise, edite, adicione ou remova cenários. Depois, clique em "Detalhar Cenário" individualmente ou selecione vários para detalhar em grupo.</p>
                                 <div className="space-y-3 max-h-[50vh] overflow-y-auto pr-2">
                                     {bddScenarios.map((scenario, index) => (
-                                        <div key={scenario.id} className={`flex items-center gap-3 p-3 rounded-md ${scenario.completed ? 'bg-green-900/30' : 'bg-gray-700/50'}`}>
+                                        <div key={scenario.id} className={`flex items-center gap-3 p-2 rounded-md ${scenario.completed ? 'bg-green-900/30' : 'bg-gray-700/50'}`}>
+                                            <input
+                                                type="checkbox"
+                                                checked={selectedScenarioIds.includes(scenario.id)}
+                                                onChange={() => handleToggleSelection(scenario.id)}
+                                                className="h-5 w-5 rounded bg-gray-800 border-gray-600 text-purple-500 focus:ring-purple-600 flex-shrink-0"
+                                                aria-label={`Selecionar cenário ${scenario.title}`}
+                                                disabled={scenario.completed}
+                                            />
                                             {scenario.completed ? <CheckCircleIcon className="w-6 h-6 text-green-400 flex-shrink-0"/> : <div className="w-6 h-6 flex-shrink-0" />}
                                             {editingIndex === index ? (
                                                 <input
@@ -1688,7 +1867,17 @@ const App: React.FC = () => {
                                 </div>
                                 <div className="flex justify-between mt-6">
                                      <button onClick={handleAdd} className="bg-gray-600 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded">Adicionar Cenário</button>
-                                     <button onClick={() => setAppState('bdd_review')} disabled={!bddScenarios.some(s => s.completed)} className="bg-green-600 hover:bg-green-700 disabled:bg-gray-500 text-white font-bold py-2 px-4 rounded">Revisar Arquivo .feature</button>
+                                     <div className="flex gap-3">
+                                        {selectedScenarioIds.length > 1 && (
+                                            <button
+                                                onClick={handleDetailGroupedScenarios}
+                                                className="bg-cyan-600 hover:bg-cyan-700 text-white font-bold py-2 px-4 rounded"
+                                            >
+                                                Detalhar Selecionados ({selectedScenarioIds.length})
+                                            </button>
+                                        )}
+                                        <button onClick={() => setAppState('bdd_review')} disabled={!bddScenarios.some(s => s.completed)} className="bg-green-600 hover:bg-green-700 disabled:bg-gray-500 text-white font-bold py-2 px-4 rounded">Revisar Arquivo .feature</button>
+                                     </div>
                                 </div>
                             </div>
                         </div>
@@ -1722,14 +1911,18 @@ const App: React.FC = () => {
                                 </div>
                                 <div className="mt-6 border-t border-gray-700 pt-6">
                                     <h3 className="text-lg font-semibold text-cyan-300 mb-4">Gerar Artefatos de Suporte</h3>
-                                    <div className="flex flex-col sm:flex-row gap-4">
-                                        <button onClick={() => handleGeneratePoChecklist(featureFileContent)} disabled={isGeneratingChecklist} className="flex-1 flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-900 text-white font-bold py-2 px-4 rounded transition">
+                                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                        <button onClick={() => handleGeneratePoChecklist(featureFileContent)} disabled={isGeneratingChecklist} className="flex items-center justify-center gap-2 bg-teal-600 hover:bg-teal-700 disabled:bg-teal-900 text-white font-bold py-2 px-4 rounded transition">
                                             <ClipboardListIcon className="w-5 h-5" />
-                                            {isGeneratingChecklist ? 'Gerando...' : 'Gerar Checklist de Pré-Homologação'}
+                                            {isGeneratingChecklist ? 'Gerando...' : 'Checklist do PO'}
                                         </button>
-                                        <button onClick={() => setIsTechSelectionModalOpen(true)} disabled={isGeneratingSteps} className="flex-1 flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-900 text-white font-bold py-2 px-4 rounded transition">
+                                        <button onClick={() => setIsTechSelectionModalOpen(true)} disabled={isGeneratingSteps} className="flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-900 text-white font-bold py-2 px-4 rounded transition">
                                             <CodeIcon className="w-5 h-5" />
-                                            {isGeneratingSteps ? 'Gerando...' : 'Gerar Esqueletos de Steps'}
+                                            {isGeneratingSteps ? 'Gerando...' : 'Definições de Steps'}
+                                        </button>
+                                        <button onClick={() => handleGenerateBddPrototype(featureFileContent)} disabled={isGeneratingBddPrototype} className="flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-900 text-white font-bold py-2 px-4 rounded transition">
+                                            <ViewBoardsIcon className="w-5 h-5" />
+                                            {isGeneratingBddPrototype ? 'Gerando...' : 'Protótipo Visual'}
                                         </button>
                                     </div>
                                     {error && <p className="text-red-400 mt-4 text-center">{error}</p>}
@@ -2048,25 +2241,41 @@ const App: React.FC = () => {
                                             />
                                         </details>
                                         {isGeneratingPrototype && <div className="mt-4"><Loader text="A IA está desenhando o protótipo..." /></div>}
-                                        {suggestedPrototype && !isGeneratingPrototype && (
-                                            <div className="mt-4">
-                                                <div className="flex justify-between items-center mb-2"><h4 className="font-semibold text-md">Código do Protótipo:</h4><button onClick={() => handleCopy(suggestedPrototype)} title="Copiar Código" className="text-gray-400 hover:text-white transition">{copied ? <ClipboardCheckIcon className="w-5 h-5 text-green-400" /> : <ClipboardIcon className="w-5 h-5" />}</button></div>
-                                                <pre className="text-sm text-gray-300 whitespace-pre-wrap font-mono bg-gray-900/50 p-3 rounded-md max-h-60 overflow-y-auto">{suggestedPrototype}</pre>
-                                            </div>
-                                        )}
                                     </div>
                                 </>
                             ) : ( // BDD Mode Panel
                                 <div className="bg-gray-800/50 rounded-lg p-4 lg:p-6 border border-gray-700">
-                                    <h3 className="text-lg font-semibold text-yellow-300 mb-1">Construtor de Cenário BDD</h3>
-                                    <p className="text-sm text-gray-400 mb-4">Cenário: <span className="font-semibold">{originalStory.title}</span></p>
-                                    <button onClick={handleGenerateGherkin} disabled={isGeneratingGherkin || !!generatedGherkin} className="w-full mb-4 bg-yellow-600 hover:bg-yellow-700 disabled:bg-yellow-900 disabled:cursor-not-allowed text-white font-bold py-2 px-4 rounded-md transition-transform transform hover:scale-105">Gerar Cenário em Gherkin</button>
+                                    <h3 className="text-lg font-semibold text-yellow-300 mb-1">
+                                        {planningScope === 'single' ? 'Construtor de Cenário BDD' : 'Construtor de Cenários BDD (Grupo)'}
+                                    </h3>
+                                    <p className="text-sm text-gray-400 mb-4">
+                                        {planningScope === 'single' ? `Cenário: ` : `Cenários: `}
+                                        <span className="font-semibold">
+                                            {planningScope === 'single' && originalStory?.title}
+                                            {planningScope === 'group' && currentGroupIndexes.map(i => bddScenarios[i].title).join(', ')}
+                                        </span>
+                                    </p>
+                                    <button onClick={handleGenerateGherkin} disabled={isGeneratingGherkin || !!generatedSingleGherkin || !!generatedGroupGherkin} className="w-full mb-4 bg-yellow-600 hover:bg-yellow-700 disabled:bg-yellow-900 disabled:cursor-not-allowed text-white font-bold py-2 px-4 rounded-md transition-transform transform hover:scale-105">Gerar Cenário(s) em Gherkin</button>
                                     {isGeneratingGherkin && <Loader text="A IA está escrevendo o Gherkin..." />}
-                                    {generatedGherkin && !isGeneratingGherkin && (
+                                    {generatedSingleGherkin && !isGeneratingGherkin && (
                                         <div>
-                                            <div className="flex justify-between items-center mb-2"><h4 className="font-semibold text-md">Gherkin Gerado:</h4><button onClick={() => handleCopy(generatedGherkin)} title="Copiar Gherkin" className="text-gray-400 hover:text-white transition">{copied ? <ClipboardCheckIcon className="w-5 h-5 text-green-400" /> : <ClipboardIcon className="w-5 h-5" />}</button></div>
-                                            <pre className="text-sm text-gray-300 whitespace-pre-wrap font-mono bg-gray-900/50 p-3 rounded-md max-h-80 overflow-y-auto">{generatedGherkin}</pre>
-                                            <button onClick={handleCompleteScenario} className="w-full mt-4 bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded-md transition">Concluir e Voltar para a Lista</button>
+                                            <div className="flex justify-between items-center mb-2"><h4 className="font-semibold text-md">Gherkin Gerado:</h4><button onClick={() => handleCopy(generatedSingleGherkin)} title="Copiar Gherkin" className="text-gray-400 hover:text-white transition">{copied ? <ClipboardCheckIcon className="w-5 h-5 text-green-400" /> : <ClipboardIcon className="w-5 h-5" />}</button></div>
+                                            <pre className="text-sm text-gray-300 whitespace-pre-wrap font-mono bg-gray-900/50 p-3 rounded-md max-h-80 overflow-y-auto">{generatedSingleGherkin}</pre>
+                                            <button onClick={handleCompleteBddPlanning} className="w-full mt-4 bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded-md transition">Concluir e Voltar para a Lista</button>
+                                        </div>
+                                    )}
+                                    {generatedGroupGherkin && !isGeneratingGherkin && (
+                                        <div>
+                                            <h4 className="font-semibold text-md mb-2">Gherkin Gerado:</h4>
+                                            <div className="space-y-4 max-h-80 overflow-y-auto pr-2">
+                                                {generatedGroupGherkin.map(item => (
+                                                    <div key={item.title}>
+                                                        <h5 className="font-semibold text-purple-300 mb-1">{item.title}</h5>
+                                                        <pre className="text-sm text-gray-300 whitespace-pre-wrap font-mono bg-gray-900/50 p-3 rounded-md">{item.gherkin}</pre>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                            <button onClick={handleCompleteBddPlanning} className="w-full mt-4 bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded-md transition">Concluir e Voltar para a Lista</button>
                                         </div>
                                     )}
                                 </div>
@@ -2168,7 +2377,7 @@ const App: React.FC = () => {
                  <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4" onClick={() => setIsStepDefModalOpen(false)}>
                     <div className="bg-gray-800 rounded-lg shadow-xl max-w-3xl w-full p-6 border border-gray-700 animate-fade-in-up" onClick={e => e.stopPropagation()}>
                          <div className="flex justify-between items-center mb-4">
-                            <h3 className="text-xl font-semibold text-purple-300">Esqueletos de Steps ({selectedTechnology})</h3>
+                            <h3 className="text-xl font-semibold text-purple-300">Definições de Steps ({selectedTechnology})</h3>
                             <button onClick={() => handleCopy(stepDefContent)} title="Copiar Código" className="text-gray-400 hover:text-white transition">
                                 {copied ? <ClipboardCheckIcon className="w-5 h-5 text-green-400" /> : <ClipboardIcon className="w-5 h-5" />}
                             </button>
@@ -2181,6 +2390,13 @@ const App: React.FC = () => {
                         </div>
                     </div>
                  </div>
+            )}
+            {isPrototypeModalOpen && suggestedPrototype && (
+                <PrototypeModal
+                    prototypeCode={suggestedPrototype}
+                    onClose={() => setIsPrototypeModalOpen(false)}
+                    title="Protótipo Visual Gerado"
+                />
             )}
             {confirmationAction && <ConfirmationModal action={confirmationAction} onClose={() => setConfirmationAction(null)} />}
         </div>

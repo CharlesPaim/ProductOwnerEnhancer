@@ -44,3 +44,8 @@ export interface BddFeatureSuggestion {
   title: string;
   summary: string;
 }
+
+export interface GherkinScenario {
+  title: string;
+  gherkin: string;
+}

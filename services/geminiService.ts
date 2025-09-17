@@ -1,5 +1,5 @@
 import { GoogleGenAI, GenerateContentResponse, Type, Part } from "@google/genai";
-import { Persona, ParsedStory, ConversationTurn, InitialQuestions, ComplexityAnalysisResult, SplitStory, BddFeatureSuggestion } from '../types';
+import { Persona, ParsedStory, ConversationTurn, InitialQuestions, ComplexityAnalysisResult, SplitStory, BddFeatureSuggestion, GherkinScenario } from '../types';
 
 if (!process.env.API_KEY) {
     console.error("API_KEY environment variable not set.");
@@ -429,6 +429,7 @@ export const generatePrototype = async (storyDescription: string, modelPrototype
         3. O código deve ser contido em um único bloco, sem dependências externas de JS ou CSS além do Tailwind.
         4. Foque em representar visualmente a funcionalidade descrita. O protótipo não precisa ser funcional.
         5. Se a história descreve um formulário, inclua labels, inputs apropriados e um botão de submissão.
+        6. **IMPORTANTE:** Adicione seletores estáveis a todos os elementos interativos (inputs, botões, selects, etc.) para facilitar os testes automatizados. Use atributos como 'id', 'name', ou 'data-cy' de forma lógica (ex: <input type="text" name="username" id="username">).
 
         Produza apenas o bloco de código HTML/CSS, sem nenhuma explicação, comentário extra ou a tag \`\`\`html.
         `;
@@ -442,6 +443,47 @@ export const generatePrototype = async (storyDescription: string, modelPrototype
     } catch (error) {
         console.error("Error generating prototype:", error);
         throw new Error("Falha ao gerar o protótipo visual.");
+    }
+};
+
+export const generatePrototypeFromFeature = async (featureFileContent: string, modelPrototype?: string): Promise<string> => {
+    try {
+        const modelPrototypePrompt = modelPrototype
+            ? `Use o seguinte código como um modelo forte para a estrutura de componentes, estilo e classes Tailwind CSS: \n---\n${modelPrototype}\n---`
+            : "Gere um código limpo e semântico usando HTML e classes do Tailwind CSS.";
+
+        const prompt = `
+        Você é um Desenvolvedor Front-end Sênior, especialista em criar interfaces de usuário acessíveis e bem estruturadas com HTML e Tailwind CSS.
+        Sua tarefa é ler o seguinte arquivo .feature de BDD e gerar um código de protótipo visual para a funcionalidade descrita.
+
+        **Arquivo .feature para Prototipagem:**
+        ---
+        ${featureFileContent}
+        ---
+
+        **Diretrizes de Estilo e Estrutura:**
+        ${modelPrototypePrompt}
+
+        **Instruções:**
+        1. Analise a declaração da 'Funcionalidade' e cada 'Cenário' para entender os elementos da interface (botões, formulários, textos, etc.) e as interações do usuário.
+        2. Crie um protótipo visual que represente a tela principal da funcionalidade, incluindo os elementos mencionados nos cenários.
+        3. Use apenas HTML e classes do Tailwind CSS. O código deve ser contido em um único bloco, sem dependências externas de JS ou CSS além do Tailwind.
+        4. Foque em representar visualmente a funcionalidade descrita. O protótipo não precisa ser funcional.
+        5. Se os cenários descrevem um formulário, inclua labels, inputs apropriados e botões de submissão.
+        6. **IMPORTANTE:** Adicione seletores estáveis a todos os elementos interativos (inputs, botões, selects, etc.) para facilitar os testes automatizados. Use atributos como 'id', 'name', ou 'data-cy' de forma lógica (ex: <input type="text" name="username" id="username">).
+
+        Produza apenas o bloco de código HTML/CSS, sem nenhuma explicação, comentário extra ou a tag \`\`\`html.
+        `;
+
+        const response = await ai.models.generateContent({
+            model: model,
+            contents: prompt,
+        });
+
+        return response.text.trim();
+    } catch (error) {
+        console.error("Error generating prototype from feature:", error);
+        throw new Error("Falha ao gerar o protótipo visual a partir da feature.");
     }
 };
 
@@ -524,6 +566,50 @@ export const generateBddFollowUpQuestion = async (featureDescription: string, sc
     }
 };
 
+export const generateBddFollowUpQuestionForGroup = async (featureDescription: string, scenarioTitles: string[], conversationHistory: ConversationTurn[], nextPersona: Persona): Promise<string> => {
+    try {
+        const history = conversationHistory.map(turn =>
+            `Pergunta de ${turn.persona}: ${turn.question}\nResposta do Usuário: ${turn.answer || 'Pulado'}`
+        ).join('\n\n');
+
+        const prompt = `
+        Você está em uma sessão de BDD para detalhar um grupo de cenários de teste. Você está atuando como um(a) **${nextPersona}**.
+        O objetivo é extrair os detalhes para construir cenários Gherkin completos (Dado, Quando, Então) para TODOS os cenários listados.
+
+        **Sua Diretriz como ${nextPersona}:**
+        ${personaGuidelines[nextPersona]}
+        Lembre-se de focar em perguntas que ajudem a definir o contexto inicial comum (Dado), e depois explore as diferentes ações (Quando) e resultados (Então) de cada cenário.
+
+        **Funcionalidade:** ${featureDescription}
+        
+        **Cenários em Discussão:**
+        - ${scenarioTitles.join('\n- ')}
+
+        **Conversa até agora:**
+        ---
+        ${history}
+        ---
+
+        Com base na sua diretriz, na funcionalidade, nos cenários e na conversa:
+        1. Identifique se ainda há pontos em comum a serem esclarecidos. Se houver, faça uma pergunta sobre isso.
+        2. Se os pontos em comum estiverem claros, faça uma pergunta focada nas *diferenças* entre os cenários.
+        
+        A pergunta deve ser concisa e focada. Retorne apenas a pergunta como uma única string, em português do Brasil, sem nenhum preâmbulo.
+        `;
+
+        const response = await ai.models.generateContent({
+            model: model,
+            contents: prompt,
+        });
+
+        return response.text.trim();
+
+    } catch (error) {
+        console.error("Error generating BDD group follow-up question:", error);
+        throw new Error("Falha ao gerar uma pergunta de acompanhamento para o grupo de cenários BDD.");
+    }
+};
+
 export const generateGherkinFromConversation = async (featureDescription: string, scenarioTitle: string, conversation: ConversationTurn[]): Promise<string> => {
     try {
         const history = conversation
@@ -580,6 +666,79 @@ export const generateGherkinFromConversation = async (featureDescription: string
     }
 };
 
+export const generateGherkinFromGroupConversation = async (featureDescription: string, scenarioTitles: string[], conversation: ConversationTurn[]): Promise<GherkinScenario[]> => {
+    try {
+        const history = conversation
+            .filter(turn => turn.answer && turn.answer.trim() !== 'Pulado')
+            .map(turn => `Pergunta de ${turn.persona}: ${turn.question}\nResposta do Usuário: ${turn.answer}`)
+            .join('\n\n');
+
+        if (!history) {
+            throw new Error("Nenhum feedback fornecido. Responda a algumas perguntas para gerar os cenários.");
+        }
+
+        const prompt = `
+        Você é um especialista em BDD e Gherkin.
+        Sua tarefa é escrever um cenário Gherkin completo e bem formatado para CADA UM dos cenários listados, com base na discussão.
+
+        **Funcionalidade Principal:**
+        ---
+        ${featureDescription}
+        ---
+
+        **Títulos dos Cenários a serem Gerados:**
+        - ${scenarioTitles.join('\n- ')}
+        ---
+
+        **Registro da Discussão (Perguntas e Respostas):**
+        ---
+        ${history}
+        ---
+
+        Com base em TODA a discussão, gere o Gherkin para CADA um dos cenários solicitados.
+        - Para cada cenário, comece com 'Cenário: [Título do Cenário]'.
+        - Use 'Dado' para o contexto/precondições.
+        - Use 'Quando' para a ação principal.
+        - Use 'Então' para o resultado/verificação.
+        - Use 'E' para continuar os passos.
+        - Reutilize steps quando fizer sentido entre os cenários.
+
+        Retorne um array de objetos JSON, em português do Brasil, onde cada objeto representa um cenário e contém as chaves "title" e "gherkin".
+        `;
+
+        const responseSchema = {
+            type: Type.ARRAY,
+            items: {
+                type: Type.OBJECT,
+                properties: {
+                    title: { type: Type.STRING, description: "O título exato de um dos cenários solicitados." },
+                    gherkin: { type: Type.STRING, description: "O bloco de texto Gherkin completo para esse cenário." }
+                },
+                required: ["title", "gherkin"]
+            }
+        };
+
+        const response = await ai.models.generateContent({
+            model: model,
+            contents: prompt,
+            config: {
+                responseMimeType: "application/json",
+                responseSchema,
+            },
+        });
+
+        const jsonString = response.text;
+        return JSON.parse(jsonString) as GherkinScenario[];
+
+    } catch (error) {
+        console.error("Error generating Gherkin scenarios for group:", error);
+        if (error instanceof Error && error.message.startsWith("Nenhum feedback")) {
+            throw error;
+        }
+        throw new Error("Falha ao gerar os cenários Gherkin para o grupo.");
+    }
+};
+
 export const generatePoChecklist = async (featureFileContent: string): Promise<string> => {
     try {
         const prompt = `
@@ -615,9 +774,59 @@ export const generatePoChecklist = async (featureFileContent: string): Promise<s
 
 export const generateStepDefinitions = async (featureFileContent: string, technology: string): Promise<string> => {
     try {
+        let frameworkDetails = '';
+        switch (technology) {
+            case 'Python - Behave':
+                frameworkDetails = `
+                - Use a biblioteca 'behave' para a estrutura e 'selenium' para a interação com o navegador.
+                - Inclua importações como 'from behave import *', 'from selenium.webdriver.common.by import By', 'from selenium.webdriver.support.ui import WebDriverWait', e 'from selenium.webdriver.support import expected_conditions as EC'.
+                - Use 'context.browser' para acessar a instância do navegador.
+                - Para esperas, use 'WebDriverWait' e 'expected_conditions' para tornar os testes mais estáveis.
+                - Faça suposições lógicas para seletores de elementos (ex: By.NAME, "username", By.ID, "password").`;
+                break;
+            case 'JavaScript - Cypress':
+                frameworkDetails = `
+                - Use a sintaxe do Cypress com 'Given', 'When', 'Then' do 'cypress-cucumber-preprocessor'.
+                - Use comandos do Cypress como 'cy.visit()', 'cy.get()', '.type()', '.click()'.
+                - Para asserções, use '.should()'.
+                - Faça suposições lógicas para seletores de elementos (ex: '[data-cy=username]', 'input[name="username"]').`;
+                break;
+            case 'Java - Cucumber':
+                 frameworkDetails = `
+                - Use a sintaxe do Cucumber-JVM com anotações (@Given, @When, @Then).
+                - Use 'Selenium WebDriver' para a interação com o navegador.
+                - Inclua importações necessárias (io.cucumber.java.en.*, org.openqa.selenium.*).
+                - Faça suposições lógicas para seletores de elementos (ex: By.name("username")).
+                - Use asserções do JUnit ou TestNG (ex: Assert.assertTrue()).`;
+                break;
+            case 'PHP':
+                frameworkDetails = `
+                - Gere uma classe de contexto que implementa 'Behat\\Behat\\Context\\Context'.
+                - Use a biblioteca 'Behat' com 'Mink' para a interação com o navegador.
+                - Inclua as importações necessárias como 'use Behat\\Behat\\Context\\Context;' e 'use Behat\\Gherkin\\Node\\PyStringNode;'.
+                - A classe de contexto deve ter um método para acessar a sessão do Mink (ex: 'getSession()').
+                - Use os métodos do Mink para interagir com a página, como '\\$this->getSession()->getPage()->fillField('username', \\$username);' e '\\$this->getSession()->getPage()->pressButton('Entrar');'.
+                - Para asserções, use exceções ou a biblioteca de asserções que preferir (ex: 'PHPUnit\\Framework\\Assert::assertContains()').
+                - Faça suposições lógicas para seletores de elementos (ex: o texto de um label, o 'name' de um input).`;
+                break;
+            case 'C#':
+                frameworkDetails = `
+                - Gere uma classe com o atributo '[Binding]' do SpecFlow.
+                - Use 'Selenium WebDriver' para a interação com o navegador.
+                - Inclua as importações necessárias ('using TechTalk.SpecFlow;', 'using OpenQA.Selenium;', 'using NUnit.Framework;').
+                - A classe de contexto deve receber uma instância de 'IWebDriver' via injeção de dependência no construtor.
+                - Use atributos como '[Given]', '[When]', '[Then]' nos métodos.
+                - Use os métodos do Selenium para interagir com a página, como '_driver.FindElement(By.Name("username")).SendKeys(username);'.
+                - Para asserções, use o framework NUnit (ex: 'Assert.IsTrue(_driver.FindElement(By.TagName("h1")).Text.Contains("Bem-vindo"));').
+                - Faça suposições lógicas para seletores de elementos (ex: By.Name, By.Id).`;
+                break;
+            default:
+                frameworkDetails = `Siga as melhores práticas para a tecnologia ${technology}.`
+        }
+
         const prompt = `
         Você é um Desenvolvedor Sênior especialista em automação de testes e BDD.
-        Sua tarefa é ler o seguinte arquivo .feature e gerar o código "esqueleto" das Step Definitions para a tecnologia especificada.
+        Sua tarefa é ler o seguinte arquivo .feature e gerar o código **completo e funcional** das Step Definitions para a tecnologia especificada.
 
         **Tecnologia Alvo:** ${technology}
 
@@ -627,12 +836,17 @@ export const generateStepDefinitions = async (featureFileContent: string, techno
         ---
 
         **Instruções:**
-        1. Analise o arquivo .feature e identifique todos os passos únicos (Dado, Quando, Então, E).
-        2. Para cada passo único, gere a função/método correspondente na sintaxe correta para '${technology}'.
-        3. Use expressões regulares apropriadas para capturar parâmetros nos passos (ex: valores entre aspas ou números).
-        4. Deixe o corpo das funções/métodos vazio ou com um comentário indicando que a implementação está pendente (ex: 'pass' em Python, '// Write code here that turns the phrase above into concrete actions' em Java/JS).
+        1.  Analise o arquivo .feature e identifique todos os passos únicos (Dado, Quando, Então, E).
+        2.  Para cada passo, gere a função/método correspondente com uma **implementação completa**, não apenas um esqueleto.
+        3.  Use expressões regulares apropriadas para capturar parâmetros nos passos (ex: valores entre aspas).
+        4.  **Faça suposições inteligentes sobre os seletores de elementos da página**. Por exemplo, para um campo de "username", você pode tentar um seletor como \`[name="username"]\`, \`#username\`, ou similar. Para botões, use seu texto ou um seletor genérico como \`button[type="submit"]\`.
+        5.  **Inclua todas as importações necessárias** no início do arquivo para que o código seja o mais próximo possível de "copiar e colar".
+        6.  Use **esperas explícitas** (como WebDriverWait do Selenium ou equivalentes) para aguardar que os elementos apareçam na tela, tornando o teste mais robusto.
 
-        Produza apenas o bloco de código com os esqueletos das Step Definitions, em português do Brasil. Não inclua explicações, comentários extras ou as tags de formatação de código (como \`\`\`javascript).
+        **Diretrizes Específicas para a Tecnologia:**
+        ${frameworkDetails}
+
+        Produza apenas o bloco de código com as Step Definitions, em português do Brasil. Não inclua explicações, comentários extras ou as tags de formatação de código (como \`\`\`python).
         `;
 
         const response = await ai.models.generateContent({
@@ -643,7 +857,7 @@ export const generateStepDefinitions = async (featureFileContent: string, techno
         return response.text.trim();
     } catch (error) {
         console.error("Error generating step definitions:", error);
-        throw new Error("Falha ao gerar os esqueletos de steps.");
+        throw new Error("Falha ao gerar as definições de steps.");
     }
 };
 
