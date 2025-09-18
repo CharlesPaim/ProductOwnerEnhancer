@@ -115,7 +115,7 @@ const FeaturesModal = ({ onClose }: { onClose: () => void; }) => (
                             <li><span className="font-semibold text-gray-300">Sessão de Homologação:</span> Extrai feedback e pontos de ação.</li>
                         </ul>
                     </li>
-                    <li><span className="font-semibold">Criar Feature BDD:</span> Guie a IA para criar um arquivo .feature completo a partir de uma descrição de alto nível.</li>
+                    <li><span className="font-semibold">Criar Feature BDD:</span> A partir de uma descrição, a IA sugere cenários. Você pode então revisar, editar, adicionar, remover e detalhar cada cenário (incluindo a criação de 'Scenario Outlines' com tabelas de exemplos) para gerar um arquivo .feature completo.</li>
                     <li><span className="font-semibold">Converter Documento para BDD:</span> Cole um documento de requisitos tradicional para que a IA o analise, sugira uma quebra em features menores e o transforme em um arquivo .feature.</li>
                 </ul>
             </div>
