@@ -1,14 +1,16 @@
-
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { Persona, ParsedStory, RedmineIssue, ConversationTurn, ComplexityAnalysisResult, SplitStory, BddFeatureSuggestion, GherkinScenario } from './types';
-import { generateInitialQuestions, suggestNewStoryVersion, generateFollowUpQuestion, generateNewStory, refineSuggestedStory, generateTestScenarios, analyzeStoryComplexity, generateStoriesFromTranscript, generatePrototype, generateBddScenarios, generateBddFollowUpQuestion, generateGherkinFromConversation, generatePoChecklist, generateStepDefinitions, convertDocumentToBdd, analyzeAndBreakdownDocument, analyzePlanningTranscript, analyzeHomologationTranscript, generatePrototypeFromFeature, generateBddFollowUpQuestionForGroup, generateGherkinFromGroupConversation } from './services/geminiService';
-import { personaDetails, UserIcon, BookOpenIcon, XIcon, MenuIcon, SparklesIcon, HomeIcon, ClipboardIcon, ClipboardCheckIcon, ClipboardListIcon, InformationCircleIcon, ScaleIcon, MicrophoneIcon, TemplateIcon, ViewBoardsIcon, DocumentTextIcon, CheckCircleIcon, PencilIcon, TrashIcon, CodeIcon, SwitchHorizontalIcon, DownloadIcon } from './components/icons';
+import { generateInitialQuestions, suggestNewStoryVersion, generateFollowUpQuestion, generateNewStory, refineSuggestedStory, generateTestScenarios, analyzeStoryComplexity, generateStoriesFromTranscript, generatePrototype, generateBddScenarios, generateBddFollowUpQuestion, generateGherkinFromConversation, generatePoChecklist, generateStepDefinitions, convertDocumentToBdd, analyzeAndBreakdownDocument, analyzePlanningTranscript, analyzeHomologationTranscript, generatePrototypeFromFeature, generateBddFollowUpQuestionForGroup, generateGherkinFromGroupConversation, extractTableColumnsFromQuestion, generateInitialScenarioOutline } from './services/geminiService';
+import { personaDetails, UserIcon, BookOpenIcon, XIcon, MenuIcon, SparklesIcon, HomeIcon, ClipboardIcon, ClipboardCheckIcon, ClipboardListIcon, InformationCircleIcon, ScaleIcon, MicrophoneIcon, TemplateIcon, ViewBoardsIcon, DocumentTextIcon, CheckCircleIcon, PencilIcon, TrashIcon, CodeIcon, SwitchHorizontalIcon, DownloadIcon, TableIcon, PlusIcon } from './components/icons';
+import DataTableModal from './components/DataTableModal';
+
 
 type BddScenario = {
     id: number;
     title: string;
     gherkin: string | null;
     completed: boolean;
+    type: 'scenario' | 'outline';
 };
 
 type ConfirmationAction = {
@@ -18,6 +20,30 @@ type ConfirmationAction = {
 } | null;
 
 type TranscriptionMode = 'requirements' | 'planning' | 'homologation';
+
+const GherkinContent = ({ text }: { text: string }) => {
+    const lines = text.split('\n');
+    const elements: React.ReactNode[] = [];
+    let inDocString = false;
+
+    const docStringStyle = "block bg-gray-700/50 text-cyan-300 px-2";
+    const normalStyle = "block";
+
+    for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        const isBoundary = line.trim() === '"""';
+
+        if (isBoundary) {
+            elements.push(<span key={i} className={docStringStyle}>{line}</span>);
+            inDocString = !inDocString;
+        } else if (inDocString) {
+            elements.push(<span key={i} className={docStringStyle}>{line || '\u00A0'}</span>);
+        } else {
+            elements.push(<span key={i} className={normalStyle}>{line}</span>);
+        }
+    }
+    return <>{elements}</>;
+};
 
 const personaToKey = (p: Persona): string => {
     switch(p) {
@@ -105,6 +131,7 @@ const FeaturesModal = ({ onClose }: { onClose: () => void; }) => (
                 <ul className="list-disc list-inside space-y-1 mt-1">
                     <li><span className="font-semibold">Configuração Flexível:</span> Selecione as personas (Dev, QA, Arquiteto, UX, DevOps) e arraste para definir a ordem das perguntas.</li>
                     <li><span className="font-semibold">Perguntas Contextuais:</span> A IA faz perguntas sequenciais com base nas personas e na conversa.</li>
+                    <li><span className="font-semibold">Inserção de Tabelas:</span> Quando a IA pede dados tabulares, um botão aparece para abrir um modal de edição de tabelas, inserindo os dados formatados na sua resposta.</li>
                     <li><span className="font-semibold">Análise de Complexidade (Anti-Épico):</span> Identifique histórias muito grandes e receba sugestões para quebrá-las. Refine cada nova história individualmente.</li>
                     <li><span className="font-semibold">Planejamento BDD em Grupo:</span> Selecione múltiplos cenários para discuti-los em uma única sessão de planejamento, otimizando o tempo.</li>
                 </ul>
@@ -672,12 +699,11 @@ const PersonaAvatar = ({ persona }: { persona: Persona }) => {
     );
 };
 
-const OriginalStoryModal = ({ story, onClose, titleOverride }: { story: ParsedStory; onClose: () => void; titleOverride?: string; }) => {
+const OriginalStoryModal = ({ story, onClose, titleOverride, onDownload }: { story: ParsedStory; onClose: () => void; titleOverride?: string; onDownload?: () => void; }) => {
     const [copied, setCopied] = useState(false);
 
     const handleCopy = useCallback(() => {
-        const textToCopy = `${story.title}\n\n${story.description}`;
-        navigator.clipboard.writeText(textToCopy);
+        navigator.clipboard.writeText(story.description);
         setCopied(true);
         setTimeout(() => setCopied(false), 2000);
     }, [story]);
@@ -702,9 +728,16 @@ const OriginalStoryModal = ({ story, onClose, titleOverride }: { story: ParsedSt
             </button>
             <div className="flex justify-between items-center mb-1 pr-12">
                 <h3 className="text-lg font-semibold text-purple-300">{titleOverride || "História Original"}</h3>
-                <button onClick={handleCopy} title="Copiar" className="text-gray-400 hover:text-white transition">
-                    {copied ? <ClipboardCheckIcon className="w-5 h-5 text-green-400" /> : <ClipboardIcon className="w-5 h-5" />}
-                </button>
+                <div className="flex items-center gap-4">
+                    <button onClick={handleCopy} title="Copiar" className="text-gray-400 hover:text-white transition">
+                        {copied ? <ClipboardCheckIcon className="w-5 h-5 text-green-400" /> : <ClipboardIcon className="w-5 h-5" />}
+                    </button>
+                    {onDownload && (
+                         <button onClick={onDownload} title="Download" className="text-gray-400 hover:text-white transition">
+                            <DownloadIcon className="w-5 h-5" />
+                         </button>
+                    )}
+                </div>
             </div>
             <h4 className="text-md font-bold mb-3">{story.title}</h4>
             <div className="max-h-[70vh] overflow-y-auto pr-2">
@@ -904,9 +937,29 @@ const ConfirmationModal = ({ action, onClose }: { action: ConfirmationAction; on
     );
 };
 
+const handleDownload = (content: string, filename: string) => {
+    const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+};
+
+const getFileExtension = (technology: string): string => {
+    if (technology.includes('JavaScript')) return 'js';
+    if (technology.includes('Python')) return 'py';
+    if (technology.includes('Java')) return 'java';
+    if (technology.includes('PHP')) return 'php';
+    if (technology.includes('C#')) return 'cs';
+    return 'txt';
+};
 
 const App: React.FC = () => {
-    type AppState = 'home' | 'refining' | 'generating' | 'transcribing_context' | 'transcribing_input' | 'transcribing_review' | 'bdd_input' | 'bdd_scenarios' | 'bdd_review' | 'bdd_converting_doc_input' | 'bdd_breakdown_review' | 'bdd_feature_selection' | 'bdd_converting_doc_review' | 'loading_generation' | 'loading_transcription' | 'loading_bdd_scenarios' | 'loading_bdd_breakdown' | 'loading_bdd_conversion' | 'reviewing' | 'configuring' | 'loading' | 'planning' | 'error' | 'analyzing_complexity' | 'story_selection';
+    type AppState = 'home' | 'refining' | 'generating' | 'transcribing_context' | 'transcribing_input' | 'transcribing_review' | 'bdd_input' | 'bdd_scenarios' | 'bdd_review' | 'bdd_converting_doc_input' | 'bdd_breakdown_review' | 'bdd_feature_selection' | 'bdd_converting_doc_review' | 'loading_generation' | 'loading_transcription' | 'loading_bdd_scenarios' | 'loading_bdd_breakdown' | 'loading_bdd_conversion' | 'loading_outline_generation' | 'scenario_outline_editor' | 'reviewing' | 'configuring' | 'loading' | 'planning' | 'error' | 'analyzing_complexity' | 'story_selection';
     const [appState, setAppState] = useState<AppState>('home');
 
     // Story refinement state
@@ -934,6 +987,7 @@ const App: React.FC = () => {
     const [convertedFeatureFile, setConvertedFeatureFile] = useState('');
     const [poChecklistCache, setPoChecklistCache] = useState<{ featureContent: string; checklist: string; } | null>(null);
     const [stepDefCache, setStepDefCache] = useState<{ featureContent: string; technology: string; steps: string; } | null>(null);
+    const [editingOutline, setEditingOutline] = useState<{ template: string; headers: string[]; rows: string[][]; } | null>(null);
     
     // New states for grouped planning
     const [selectedScenarioIds, setSelectedScenarioIds] = useState<number[]>([]);
@@ -979,6 +1033,12 @@ const App: React.FC = () => {
     const [suggestedPrototype, setSuggestedPrototype] = useState<string | null>(null);
     const [confirmationAction, setConfirmationAction] = useState<ConfirmationAction>(null);
     
+    // Data Table state
+    const [isDataTableModalOpen, setIsDataTableModalOpen] = useState(false);
+    const [dataTableColumns, setDataTableColumns] = useState<string[]>([]);
+    const [isExtractingColumns, setIsExtractingColumns] = useState(false);
+    const [currentTurnIdForColumnCheck, setCurrentTurnIdForColumnCheck] = useState<number | null>(null);
+
     // Cache states
     const [complexityCache, setComplexityCache] = useState<{ description: string; result: ComplexityAnalysisResult; } | null>(null);
     const [testScenariosCache, setTestScenariosCache] = useState<{ description: string; scenarios: string; } | null>(null);
@@ -987,10 +1047,34 @@ const App: React.FC = () => {
     const [gherkinCache, setGherkinCache] = useState<{ conversation: ConversationTurn[]; gherkin: string | GherkinScenario[]; } | null>(null);
 
     const conversationEndRef = useRef<HTMLDivElement>(null);
+    
+    const currentTurn = conversation[conversation.length - 1];
 
     useEffect(() => {
         conversationEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }, [conversation]);
+
+    useEffect(() => {
+        // Check if it's a new turn that hasn't been processed for columns yet
+        if (appState === 'planning' && currentTurn && !currentTurn.answer && currentTurn.id !== currentTurnIdForColumnCheck) {
+            const inferColumns = async () => {
+                setCurrentTurnIdForColumnCheck(currentTurn.id); // Mark as processed
+                setIsExtractingColumns(true);
+                setDataTableColumns([]); // Reset from previous turn
+                try {
+                    const columns = await extractTableColumnsFromQuestion(currentTurn.question);
+                    if (columns && columns.length > 0) {
+                        setDataTableColumns(columns);
+                    }
+                } catch (e) {
+                    console.error("Failed to infer columns", e);
+                } finally {
+                    setIsExtractingColumns(false);
+                }
+            };
+            inferColumns();
+        }
+    }, [appState, currentTurn, currentTurnIdForColumnCheck]);
     
     const handleCopy = (text: string, turnId?: number) => {
         navigator.clipboard.writeText(text);
@@ -1077,7 +1161,14 @@ const App: React.FC = () => {
         setError(null);
         try {
             const scenarios = await generateBddScenarios(description);
-            setBddScenarios(scenarios.map((title, i) => ({ id: Date.now() + i, title, gherkin: null, completed: false })));
+            // FIX: Explicitly cast the 'type' property to satisfy the BddScenario type.
+            setBddScenarios(scenarios.map((title, i) => ({ 
+                id: Date.now() + i, 
+                title, 
+                gherkin: null, 
+                completed: false,
+                type: (title.toLowerCase().includes('scenario outline') ? 'outline' : 'scenario') as 'scenario' | 'outline'
+            })));
             setAppState('bdd_scenarios');
         } catch (err) {
              setError(err instanceof Error ? err.message : 'Falha ao gerar cenários BDD.');
@@ -1131,6 +1222,7 @@ const App: React.FC = () => {
             title,
             gherkin: null, 
             completed: false,
+            type: (title.toLowerCase().includes('scenario outline') ? 'outline' : 'scenario') as 'scenario' | 'outline'
         }));
 
         setBddScenarios(initialBddScenarios);
@@ -1147,6 +1239,56 @@ const App: React.FC = () => {
         setPlanningScope('single');
         setAppState('configuring');
     }, [bddScenarios, featureDescription]);
+
+    const handleStartOutlineEditing = useCallback(async (index: number) => {
+        setCurrentScenarioIndex(index);
+        setAppState('loading_outline_generation');
+        setError(null);
+        try {
+            const scenario = bddScenarios[index];
+            const result = await generateInitialScenarioOutline(featureDescription, scenario.title);
+            setEditingOutline({
+                template: result.template,
+                headers: result.headers,
+                rows: [Array(result.headers.length).fill('')] // Start with one empty row
+            });
+            setAppState('scenario_outline_editor');
+        } catch (err) {
+            setError(err instanceof Error ? err.message : 'Falha ao gerar o template do Scenario Outline.');
+            setAppState('bdd_scenarios');
+        }
+    }, [bddScenarios, featureDescription]);
+
+    const handleSaveOutline = useCallback(() => {
+        if (!editingOutline || currentScenarioIndex === null) return;
+
+        const { template, headers, rows } = editingOutline;
+
+        // Format Gherkin
+        let gherkin = template;
+        if (headers.length > 0 && rows.length > 0) {
+            gherkin += '\n\n  Examples:';
+            gherkin += `\n    | ${headers.join(' | ')} |`;
+            rows.forEach(row => {
+                gherkin += `\n    | ${row.join(' | ')} |`;
+            });
+        }
+        
+        // Update scenarios
+        const updatedScenarios = [...bddScenarios];
+        updatedScenarios[currentScenarioIndex] = {
+            ...updatedScenarios[currentScenarioIndex],
+            gherkin: gherkin.trim(),
+            completed: true
+        };
+        setBddScenarios(updatedScenarios);
+
+        // Reset state
+        setEditingOutline(null);
+        setCurrentScenarioIndex(null);
+        setAppState('bdd_scenarios');
+
+    }, [editingOutline, currentScenarioIndex, bddScenarios]);
     
     const handleDetailGroupedScenarios = useCallback(() => {
         if (selectedScenarioIds.length === 0) return;
@@ -1582,6 +1724,7 @@ const App: React.FC = () => {
         setDocumentToConvert('');
         setFeatureSuggestions([]);
         setConvertedFeatureFile('');
+        setEditingOutline(null);
         setActivePersonas([]);
         setConversation([]);
         setCurrentAnswer('');
@@ -1626,6 +1769,11 @@ const App: React.FC = () => {
         setPrototypeCache(null);
         setBddPrototypeCache(null);
         setGherkinCache(null);
+        // Reset Data Table state
+        setIsDataTableModalOpen(false);
+        setDataTableColumns([]);
+        setIsExtractingColumns(false);
+        setCurrentTurnIdForColumnCheck(null);
     };
 
     const handleRestart = () => {
@@ -1681,8 +1829,6 @@ const App: React.FC = () => {
         );
     }
 
-    const currentTurn = conversation[conversation.length - 1];
-
     const PrototypeModal = ({ prototypeCode, onClose, title }: { prototypeCode: string; onClose: () => void; title: string; }) => {
         const [activeTab, setActiveTab] = useState<'preview' | 'code'>('preview');
         const [copied, setCopied] = useState(false);
@@ -1716,7 +1862,7 @@ const App: React.FC = () => {
                     </div>
                     <div className="flex-grow overflow-auto relative">
                         {activeTab === 'preview' && (
-                            <iframe srcDoc={prototypeCode} title="Prototype Preview" className="w-full h-full bg-white rounded-md" sandbox="allow-scripts" />
+                            <iframe srcDoc={`<script src="https://cdn.tailwindcss.com"></script>${prototypeCode}`} title="Prototype Preview" className="w-full h-full bg-white rounded-md" sandbox="allow-scripts" />
                         )}
                         {activeTab === 'code' && (
                             <div className="relative h-full">
@@ -1811,34 +1957,42 @@ const App: React.FC = () => {
                     };
 
                     const handleAdd = () => {
-                        const newScenario: BddScenario = { id: Date.now(), title: "Novo Cenário", gherkin: null, completed: false };
-                        setBddScenarios([...bddScenarios, newScenario]);
-                        handleEdit(bddScenarios.length);
+                        const newScenario: BddScenario = { id: Date.now(), title: "Novo Cenário", gherkin: null, completed: false, type: 'scenario' };
+                        setBddScenarios(prev => [...prev, newScenario]);
                     };
-
-                    const handleToggleSelection = (id: number) => {
+                    const toggleScenarioSelection = (id: number) => {
                         setSelectedScenarioIds(prev =>
                             prev.includes(id) ? prev.filter(scenarioId => scenarioId !== id) : [...prev, id]
                         );
                     };
-
+                    
                     return (
                         <div className="flex flex-col items-center justify-center min-h-screen p-4 -mt-20">
                             <div className="w-full max-w-4xl bg-gray-800 rounded-lg shadow-xl p-6">
-                                <h2 className="text-xl font-semibold mb-2 text-gray-200">Cenários para a Feature</h2>
-                                <p className="text-gray-400 mb-4 text-sm">Revise, edite, adicione ou remova cenários. Depois, clique em "Detalhar Cenário" individualmente ou selecione vários para detalhar em grupo.</p>
-                                <div className="space-y-3 max-h-[50vh] overflow-y-auto pr-2">
-                                    {bddScenarios.map((scenario, index) => (
-                                        <div key={scenario.id} className={`flex items-center gap-3 p-2 rounded-md ${scenario.completed ? 'bg-green-900/30' : 'bg-gray-700/50'}`}>
+                                <div className="flex justify-between items-center mb-4">
+                                    <div>
+                                        <h2 className="text-xl font-semibold text-purple-300">Cenários de Teste Sugeridos</h2>
+                                        <p className="text-gray-400 text-sm mt-1">Revise, edite e selecione os cenários para detalhar.</p>
+                                    </div>
+                                    <button onClick={() => setIsFeatureDescriptionModalOpen(true)} className="flex items-center gap-2 text-sm text-gray-300 hover:text-purple-300 transition-colors py-1 px-3 rounded-md hover:bg-gray-700/50">
+                                        <DocumentTextIcon className="w-5 h-5" />
+                                        <span>Ver Feature</span>
+                                    </button>
+                                </div>
+                                <div className="space-y-3 mb-6 max-h-[50vh] overflow-y-auto pr-2">
+                                    {bddScenarios.map((scenario, index) => {
+                                        const detailHandler = scenario.type === 'outline'
+                                            ? () => handleStartOutlineEditing(index)
+                                            : () => handleDetailScenario(index);
+                                        return (
+                                        <div key={scenario.id} className={`flex items-center p-3 rounded-md transition-colors ${scenario.completed ? 'bg-green-900/40' : 'bg-gray-700/50'}`}>
                                             <input
                                                 type="checkbox"
                                                 checked={selectedScenarioIds.includes(scenario.id)}
-                                                onChange={() => handleToggleSelection(scenario.id)}
-                                                className="h-5 w-5 rounded bg-gray-800 border-gray-600 text-purple-500 focus:ring-purple-600 flex-shrink-0"
-                                                aria-label={`Selecionar cenário ${scenario.title}`}
-                                                disabled={scenario.completed}
+                                                onChange={() => toggleScenarioSelection(scenario.id)}
+                                                className="h-4 w-4 rounded bg-gray-800 border-gray-600 text-purple-600 focus:ring-purple-500 mr-4"
+                                                disabled={scenario.completed || scenario.type === 'outline'}
                                             />
-                                            {scenario.completed ? <CheckCircleIcon className="w-6 h-6 text-green-400 flex-shrink-0"/> : <div className="w-6 h-6 flex-shrink-0" />}
                                             {editingIndex === index ? (
                                                 <input
                                                     type="text"
@@ -1846,501 +2000,253 @@ const App: React.FC = () => {
                                                     onChange={(e) => setEditingText(e.target.value)}
                                                     onBlur={() => handleSaveEdit(index)}
                                                     onKeyDown={(e) => e.key === 'Enter' && handleSaveEdit(index)}
+                                                    className="flex-grow bg-gray-900 border border-purple-500 rounded px-2 py-1 text-gray-200"
                                                     autoFocus
-                                                    className="flex-grow p-1 bg-gray-900 border border-purple-500 rounded-md text-gray-200"
                                                 />
                                             ) : (
-                                                <p className={`flex-grow ${scenario.completed ? 'line-through text-gray-400' : 'text-gray-200'}`}>{scenario.title}</p>
+                                                <span className={`flex-grow ${scenario.completed ? 'text-gray-400 line-through' : 'text-gray-300'}`}>{scenario.title}</span>
                                             )}
-                                            <div className="flex items-center gap-2">
-                                                {!scenario.completed && (
-                                                    <>
-                                                        <button onClick={() => handleEdit(index)} title="Editar"><PencilIcon className="w-5 h-5 text-gray-400 hover:text-yellow-300" /></button>
-                                                        <button onClick={() => handleDeleteBddScenario(scenario.id)} title="Remover"><TrashIcon className="w-5 h-5 text-gray-400 hover:text-red-400" /></button>
-                                                        <button onClick={() => handleDetailScenario(index)} className="text-sm bg-purple-600 hover:bg-purple-700 text-white font-bold py-1 px-3 rounded">Detalhar</button>
-                                                    </>
-                                                )}
-                                                {scenario.completed && <span className="text-sm text-green-400 font-bold">Concluído</span>}
+                                            <div className="flex items-center ml-4 space-x-2">
+                                                {scenario.completed && <CheckCircleIcon className="w-5 h-5 text-green-400" title="Completo" />}
+                                                <button onClick={detailHandler} className="text-gray-400 hover:text-cyan-300 p-1 rounded-full hover:bg-gray-600/50" title="Detalhar este cenário"><PencilIcon className="w-4 h-4" /></button>
+                                                <button onClick={() => handleEdit(index)} className="text-gray-400 hover:text-yellow-300 p-1 rounded-full hover:bg-gray-600/50" title="Editar título"><PencilIcon className="w-4 h-4" /></button>
+                                                <button onClick={() => handleDeleteBddScenario(scenario.id)} className="text-gray-400 hover:text-red-400 p-1 rounded-full hover:bg-gray-600/50" title="Remover"><TrashIcon className="w-4 h-4" /></button>
                                             </div>
                                         </div>
-                                    ))}
+                                    )})}
                                 </div>
-                                <div className="flex justify-between mt-6">
-                                     <button onClick={handleAdd} className="bg-gray-600 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded">Adicionar Cenário</button>
-                                     <div className="flex gap-3">
-                                        {selectedScenarioIds.length > 1 && (
-                                            <button
-                                                onClick={handleDetailGroupedScenarios}
-                                                className="bg-cyan-600 hover:bg-cyan-700 text-white font-bold py-2 px-4 rounded"
-                                            >
-                                                Detalhar Selecionados ({selectedScenarioIds.length})
+                                <div className="flex justify-between items-center pt-4 border-t border-gray-700">
+                                    <button onClick={handleAdd} className="flex items-center gap-2 text-sm bg-cyan-600 hover:bg-cyan-700 text-white font-bold py-2 px-3 rounded transition">
+                                        <PlusIcon className="w-5 h-5" />
+                                        Adicionar Cenário
+                                    </button>
+                                    <button
+                                        onClick={handleDetailGroupedScenarios}
+                                        disabled={selectedScenarioIds.length < 2}
+                                        className="bg-purple-600 hover:bg-purple-700 disabled:bg-gray-500 text-white font-bold py-2 px-4 rounded transition"
+                                    >
+                                        Detalhar {selectedScenarioIds.length > 0 ? `${selectedScenarioIds.length} ` : ''}Cenários Selecionados
+                                    </button>
+                                </div>
+                                {bddScenarios.every(s => s.completed) && bddScenarios.length > 0 && (
+                                    <div className="mt-8 p-4 bg-gray-900/50 rounded-lg">
+                                        <h3 className="text-lg font-semibold text-cyan-300 mb-3">Todos os cenários foram detalhados!</h3>
+                                        <p className="text-gray-400 mb-4">Agora você pode gerar o arquivo .feature completo e outras ferramentas de suporte.</p>
+                                        <div className="flex flex-wrap gap-4">
+                                            <button onClick={() => {
+                                                const fullFeature = `Funcionalidade: ${featureDescription}\n\n` + bddScenarios.map(s => s.gherkin).join('\n\n');
+                                                handleCopy(fullFeature);
+                                            }} className="flex items-center gap-2 bg-gray-600 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded transition">
+                                                <ClipboardIcon className="w-5 h-5" />
+                                                Copiar .feature Completo
                                             </button>
-                                        )}
-                                        <button onClick={() => setAppState('bdd_review')} disabled={!bddScenarios.some(s => s.completed)} className="bg-green-600 hover:bg-green-700 disabled:bg-gray-500 text-white font-bold py-2 px-4 rounded">Revisar Arquivo .feature</button>
-                                     </div>
-                                </div>
+                                            <button onClick={() => {
+                                                const fullFeature = `Funcionalidade: ${featureDescription}\n\n` + bddScenarios.map(s => s.gherkin).join('\n\n');
+                                                handleGenerateBddPrototype(fullFeature);
+                                            }} disabled={isGeneratingBddPrototype} className="flex items-center gap-2 bg-gray-600 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded transition">
+                                                <CodeIcon className="w-5 h-5" />
+                                                {isGeneratingBddPrototype ? 'Gerando...' : 'Gerar Protótipo Visual'}
+                                            </button>
+                                            <button onClick={() => {
+                                                const fullFeature = `Funcionalidade: ${featureDescription}\n\n` + bddScenarios.map(s => s.gherkin).join('\n\n');
+                                                handleGeneratePoChecklist(fullFeature);
+                                            }} disabled={isGeneratingChecklist} className="flex items-center gap-2 bg-gray-600 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded transition">
+                                                <ClipboardListIcon className="w-5 h-5" />
+                                                {isGeneratingChecklist ? 'Gerando...' : 'Gerar Checklist de PO'}
+                                            </button>
+                                            <button onClick={() => setIsTechSelectionModalOpen(true)} className="flex items-center gap-2 bg-gray-600 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded transition">
+                                                <CodeIcon className="w-5 h-5" />
+                                                Gerar Definições de Steps
+                                            </button>
+                                        </div>
+                                    </div>
+                                )}
                             </div>
                         </div>
-                    )
+                    );
                 };
                 return <BddScenarioList />;
-            case 'bdd_review':
-                const BddFeatureReviewScreen = () => {
-                    const featureFileContent = `Funcionalidade: ${featureDescription}\n\n${bddScenarios
-                        .filter(s => s.completed && s.gherkin)
-                        .map(s => s.gherkin)
-                        .join('\n\n')}`;
-                    
-                    const [copied, setCopied] = useState(false);
-                    const handleCopy = () => {
-                        navigator.clipboard.writeText(featureFileContent);
-                        setCopied(true);
-                        setTimeout(() => setCopied(false), 2000);
-                    };
-
-                    return (
-                        <div className="flex flex-col items-center justify-center min-h-screen p-4 -mt-20">
-                            <div className="w-full max-w-4xl bg-gray-800 rounded-lg shadow-xl p-6">
-                                <h2 className="text-xl font-semibold mb-2 text-gray-200">Arquivo .feature Consolidado</h2>
-                                <p className="text-gray-400 mb-4 text-sm">Este é o arquivo .feature gerado. Agora você pode gerar artefatos de suporte para o PO e para os Desenvolvedores.</p>
-                                <div className="relative">
-                                    <button onClick={handleCopy} title="Copiar" className="absolute top-2 right-2 text-gray-400 hover:text-white transition">
-                                        {copied ? <ClipboardCheckIcon className="w-5 h-5 text-green-400" /> : <ClipboardIcon className="w-5 h-5" />}
-                                    </button>
-                                    <pre className="text-sm text-gray-300 whitespace-pre-wrap font-mono bg-gray-900/50 p-4 rounded-md max-h-[50vh] overflow-y-auto">{featureFileContent}</pre>
-                                </div>
-                                <div className="mt-6 border-t border-gray-700 pt-6">
-                                    <h3 className="text-lg font-semibold text-cyan-300 mb-4">Gerar Artefatos de Suporte</h3>
-                                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                                        <button onClick={() => handleGeneratePoChecklist(featureFileContent)} disabled={isGeneratingChecklist} className="flex items-center justify-center gap-2 bg-teal-600 hover:bg-teal-700 disabled:bg-teal-900 text-white font-bold py-2 px-4 rounded transition">
-                                            <ClipboardListIcon className="w-5 h-5" />
-                                            {isGeneratingChecklist ? 'Gerando...' : 'Checklist do PO'}
-                                        </button>
-                                        <button onClick={() => setIsTechSelectionModalOpen(true)} disabled={isGeneratingSteps} className="flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-900 text-white font-bold py-2 px-4 rounded transition">
-                                            <CodeIcon className="w-5 h-5" />
-                                            {isGeneratingSteps ? 'Gerando...' : 'Definições de Steps'}
-                                        </button>
-                                        <button onClick={() => handleGenerateBddPrototype(featureFileContent)} disabled={isGeneratingBddPrototype} className="flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-900 text-white font-bold py-2 px-4 rounded transition">
-                                            <ViewBoardsIcon className="w-5 h-5" />
-                                            {isGeneratingBddPrototype ? 'Gerando...' : 'Protótipo Visual'}
-                                        </button>
-                                    </div>
-                                    {error && <p className="text-red-400 mt-4 text-center">{error}</p>}
-                                </div>
-                                <div className="flex justify-end mt-6">
-                                    <button onClick={() => setAppState('bdd_scenarios')} className="bg-gray-600 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded">Voltar para a Lista de Cenários</button>
-                                </div>
-                            </div>
-                        </div>
-                    );
-                };
-                return <BddFeatureReviewScreen />;
-            case 'bdd_converting_doc_input':
+            case 'scenario_outline_editor':
+                if (!editingOutline) return null;
                 return (
                     <div className="flex flex-col items-center justify-center min-h-screen p-4 -mt-20">
-                        <div className="w-full max-w-3xl bg-gray-800 rounded-lg shadow-xl p-6">
-                            <h2 className="text-xl font-semibold mb-2 text-gray-200">Converter Documento para BDD</h2>
-                            <p className="text-gray-400 mb-4 text-sm">Cole o conteúdo de um documento de requisitos tradicional. A IA atuará como um Arquiteto de Produto para analisá-lo e sugerir uma quebra em features menores.</p>
-                            <textarea
-                                className="w-full h-80 p-3 bg-gray-900 border border-gray-700 rounded-md focus:ring-2 focus:ring-purple-500 transition text-gray-300 resize-y"
-                                value={documentToConvert}
-                                onChange={(e) => setDocumentToConvert(e.target.value)}
-                                placeholder="Cole o documento de requisitos aqui..."
-                            />
-                            {error && <p className="text-red-400 mt-2 text-sm">{error}</p>}
-                            <button
-                                onClick={() => handleAnalyzeDocument(documentToConvert)}
-                                disabled={!documentToConvert.trim()}
-                                className="mt-6 w-full bg-purple-600 hover:bg-purple-700 disabled:bg-gray-500 text-white font-bold py-2 px-4 rounded-md transition-transform transform hover:scale-105"
-                            >
-                                Analisar e Quebrar Documento
-                            </button>
-                        </div>
-                    </div>
-                );
-            case 'bdd_breakdown_review':
-                 const BddBreakdownReviewScreen = () => {
-                    const [suggestions, setSuggestions] = useState(featureSuggestions);
-                    
-                    const handleUpdateTitle = (index: number, newTitle: string) => {
-                        const updated = [...suggestions];
-                        updated[index].title = newTitle;
-                        setSuggestions(updated);
-                    };
-
-                    return (
-                        <div className="flex flex-col items-center justify-center min-h-screen p-4 -mt-20">
-                            <div className="w-full max-w-3xl bg-gray-800 rounded-lg shadow-xl p-6">
-                                <h2 className="text-xl font-semibold mb-2 text-gray-200">Revisão da Quebra de Features</h2>
-                                <p className="text-gray-400 mb-6 text-sm">A IA analisou o documento e sugere dividi-lo nas seguintes features. Você pode editar os títulos antes de continuar.</p>
-                                <div className="space-y-3 max-h-[60vh] overflow-y-auto pr-2">
-                                    {suggestions.map((feature, index) => (
-                                        <div key={index} className="bg-gray-700/50 p-4 rounded-md">
-                                            <input
-                                                type="text"
-                                                value={feature.title}
-                                                onChange={(e) => handleUpdateTitle(index, e.target.value)}
-                                                className="w-full p-1 mb-2 bg-gray-900 border border-purple-500 rounded-md text-purple-300 font-semibold"
-                                            />
-                                            <p className="text-gray-400 text-sm">{feature.summary}</p>
-                                        </div>
-                                    ))}
-                                </div>
-                                <div className="flex justify-end mt-6">
-                                    <button onClick={() => { setFeatureSuggestions(suggestions); setAppState('bdd_feature_selection'); }} className="bg-purple-600 hover:bg-purple-700 text-white font-bold py-2 px-4 rounded">Aprovar Quebra e Selecionar</button>
-                                </div>
-                            </div>
-                        </div>
-                    );
-                };
-                return <BddBreakdownReviewScreen />;
-            case 'bdd_feature_selection':
-                return (
-                     <div className="flex flex-col items-center justify-center min-h-screen p-4 -mt-20">
-                        <div className="w-full max-w-3xl bg-gray-800 rounded-lg shadow-xl p-6">
-                            <h2 className="text-xl font-semibold mb-2 text-gray-200">Selecione uma Feature para Converter</h2>
-                            <p className="text-gray-400 mb-6 text-sm">Escolha qual das features aprovadas você deseja converter para o formato .feature agora.</p>
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                {featureSuggestions.map((feature, index) => (
-                                    <button 
-                                        key={index} 
-                                        onClick={() => handleConvertSelectedFeature(feature.title)}
-                                        className="bg-gray-700 hover:bg-gray-600 text-left p-4 rounded-md transition-transform transform hover:scale-105"
-                                    >
-                                        <h3 className="font-bold text-purple-300">{feature.title}</h3>
-                                        <p className="text-sm text-gray-400 mt-2 line-clamp-3">{feature.summary}</p>
-                                    </button>
-                                ))}
-                            </div>
-                        </div>
-                    </div>
-                );
-            case 'bdd_converting_doc_review':
-                 const BddConvertedReviewScreen = () => {
-                    const [copied, setCopied] = useState(false);
-                    const handleCopy = () => {
-                        navigator.clipboard.writeText(convertedFeatureFile);
-                        setCopied(true);
-                        setTimeout(() => setCopied(false), 2000);
-                    };
-
-                    return (
-                        <div className="flex flex-col items-center justify-center min-h-screen p-4 -mt-20">
-                            <div className="w-full max-w-4xl bg-gray-800 rounded-lg shadow-xl p-6">
-                                <h2 className="text-xl font-semibold mb-2 text-gray-200">Revisão do .feature Convertido</h2>
-                                <p className="text-gray-400 mb-4 text-sm">A IA gerou o arquivo .feature abaixo. Você pode copiá-lo ou prosseguir para refiná-lo no fluxo guiado.</p>
-                                <div className="relative">
-                                    <button onClick={handleCopy} title="Copiar" className="absolute top-2 right-2 text-gray-400 hover:text-white transition">
+                        <div className="w-full max-w-5xl bg-gray-800 rounded-lg shadow-xl p-6">
+                            <h2 className="text-xl font-semibold text-purple-300 mb-4">{currentScenarioIndex !== null && bddScenarios[currentScenarioIndex]?.title}</h2>
+                            
+                            {/* Template Section */}
+                            <div className="mb-6">
+                                <label className="flex justify-between items-center mb-2 text-sm font-medium text-gray-300">
+                                    <span>Scenario Outline</span>
+                                    <button onClick={() => handleCopy(editingOutline.template)} title="Copiar Template" className="text-gray-400 hover:text-white transition">
                                         {copied ? <ClipboardCheckIcon className="w-5 h-5 text-green-400" /> : <ClipboardIcon className="w-5 h-5" />}
                                     </button>
-                                    <pre className="text-sm text-gray-300 whitespace-pre-wrap font-mono bg-gray-900/50 p-4 rounded-md max-h-[60vh] overflow-y-auto">{convertedFeatureFile}</pre>
+                                </label>
+                                <textarea
+                                    value={editingOutline.template}
+                                    onChange={(e) => setEditingOutline({ ...editingOutline, template: e.target.value })}
+                                    rows={8}
+                                    className="w-full p-3 bg-gray-900 border border-gray-700 rounded-md focus:ring-2 focus:ring-purple-500 transition text-gray-300 resize-y font-mono"
+                                />
+                            </div>
+
+                            {/* Examples Section */}
+                            <div>
+                                <h3 className="text-lg font-semibold text-cyan-300 mb-4">Examples</h3>
+                                <div className="max-h-[40vh] overflow-auto border border-gray-700 rounded-lg">
+                                    <table className="w-full text-sm text-left text-gray-400">
+                                        <thead className="text-xs text-gray-300 uppercase bg-gray-700/50 sticky top-0">
+                                            <tr>
+                                                {editingOutline.headers.map((header, colIndex) => (
+                                                    <th key={colIndex} scope="col" className="px-4 py-3">
+                                                         <input
+                                                            type="text"
+                                                            value={header}
+                                                            onChange={(e) => {
+                                                                const newHeaders = [...editingOutline.headers];
+                                                                newHeaders[colIndex] = e.target.value;
+                                                                setEditingOutline({...editingOutline, headers: newHeaders});
+                                                            }}
+                                                            className="w-full bg-transparent border-0 border-b-2 border-gray-600 focus:border-purple-400 focus:outline-none focus:ring-0 p-0"
+                                                        />
+                                                    </th>
+                                                ))}
+                                                <th scope="col" className="px-4 py-3 w-12 text-center">Ação</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {editingOutline.rows.map((row, rowIndex) => (
+                                                <tr key={rowIndex} className="border-b border-gray-700 hover:bg-gray-700/50">
+                                                    {row.map((cell, colIndex) => (
+                                                        <td key={colIndex} className="px-2 py-1">
+                                                            <input
+                                                                type="text"
+                                                                value={cell}
+                                                                onChange={(e) => {
+                                                                    const newRows = [...editingOutline.rows];
+                                                                    newRows[rowIndex][colIndex] = e.target.value;
+                                                                    setEditingOutline({...editingOutline, rows: newRows});
+                                                                }}
+                                                                className="w-full bg-gray-900 border border-gray-600 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-purple-500"
+                                                            />
+                                                        </td>
+                                                    ))}
+                                                    <td className="px-2 py-1 text-center">
+                                                        <button onClick={() => {
+                                                            if (editingOutline.rows.length > 1) {
+                                                                const newRows = editingOutline.rows.filter((_, i) => i !== rowIndex);
+                                                                setEditingOutline({...editingOutline, rows: newRows});
+                                                            }
+                                                        }} disabled={editingOutline.rows.length <= 1} className="text-gray-400 hover:text-red-400 disabled:opacity-50 disabled:cursor-not-allowed p-1" title="Remover linha">
+                                                            <TrashIcon className="w-5 h-5" />
+                                                        </button>
+                                                    </td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
                                 </div>
-                                <div className="flex justify-end gap-4 mt-6">
-                                     <button onClick={() => setAppState('bdd_feature_selection')} className="bg-gray-600 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded">Voltar</button>
-                                    <button onClick={handleRefineConvertedFeature} className="bg-purple-600 hover:bg-purple-700 text-white font-bold py-2 px-4 rounded">Refinar Feature</button>
-                                </div>
+                                <button onClick={() => {
+                                    const newRows = [...editingOutline.rows, Array(editingOutline.headers.length).fill('')];
+                                    setEditingOutline({...editingOutline, rows: newRows});
+                                }} className="flex items-center gap-2 mt-4 bg-cyan-600 hover:bg-cyan-700 text-white font-bold py-2 px-3 rounded transition text-sm">
+                                    <PlusIcon className="w-4 h-4" />
+                                    Adicionar Linha
+                                </button>
+                            </div>
+
+                             <div className="flex justify-end gap-3 mt-6 pt-4 border-t border-gray-700">
+                                <button onClick={() => setAppState('bdd_scenarios')} className="bg-gray-600 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded transition">Cancelar</button>
+                                <button onClick={handleSaveOutline} className="bg-purple-600 hover:bg-purple-700 text-white font-bold py-2 px-4 rounded transition">Salvar e Voltar</button>
                             </div>
                         </div>
-                    );
-                };
-                return <BddConvertedReviewScreen />;
-            case 'loading_generation':
-                return <div className="h-screen -mt-20"><Loader text="A IA está gerando sua história..." /></div>;
-            case 'loading_transcription':
-                const loadingTexts = {
-                    requirements: "A IA está analisando a transcrição e gerando histórias...",
-                    planning: "O Agile Coach da IA está analisando a transcrição e a história...",
-                    homologation: "O Analista de QA Sênior da IA está analisando o feedback...",
-                };
-                return <div className="h-screen -mt-20"><Loader text={loadingTexts[transcriptionMode || 'requirements']} /></div>;
-             case 'loading_bdd_scenarios':
-                return <div className="h-screen -mt-20"><Loader text="A IA está fazendo um brainstorm de cenários..." /></div>;
-             case 'loading_bdd_breakdown':
-                return <div className="h-screen -mt-20"><Loader text="O Arquiteto de Produto da IA está analisando seu documento..." /></div>;
-             case 'loading_bdd_conversion':
-                return <div className="h-screen -mt-20"><Loader text="O Analista de Negócios Sênior da IA está convertendo a feature focada..." /></div>;
+                    </div>
+                );
             case 'reviewing':
-                return originalStory && <ReviewGeneratedStory story={originalStory} onConfirm={handleReviewConfirm} onEdit={setOriginalStory} />;
+                return originalStory && <ReviewGeneratedStory story={originalStory} onConfirm={handleReviewConfirm} onEdit={(story) => setOriginalStory(story)} />;
             case 'configuring':
                 return <PersonaConfiguration onStart={handleStartPlanning} onCancel={handleCancelConfiguration} />;
+            case 'loading_generation':
+            case 'loading_transcription':
+            case 'loading_bdd_scenarios':
+            case 'loading_bdd_breakdown':
+            case 'loading_bdd_conversion':
+            case 'loading_outline_generation':
             case 'loading':
-                return <div className="h-screen -mt-20"><Loader text="As personas de IA estão analisando sua história..." /></div>;
-             case 'story_selection':
-                return <StorySelectionScreen stories={splitStories} onSelectStory={handleSelectSplitStory} />;
-            case 'planning':
-                return originalStory && (
-                    <main className="p-4 lg:p-8 grid grid-cols-1 lg:grid-cols-12 gap-8 max-w-screen-2xl mx-auto">
-                        <div className="lg:col-span-7 flex flex-col">
-                            <div className="flex-grow bg-gray-800/50 rounded-lg p-4 lg:p-6 border border-gray-700 mb-6">
-                                <div className="flex justify-between items-center mb-4">
-                                    <h3 className="text-lg font-semibold text-cyan-300">Sessão de Planejamento</h3>
-                                    <div className="flex items-center gap-2">
-                                        {planningMode === 'story' ? (
-                                            <>
-                                                <button
-                                                    onClick={handleAnalyzeComplexity}
-                                                    disabled={isAnalyzingComplexity}
-                                                    className="flex items-center gap-2 text-sm text-gray-300 hover:text-purple-300 transition-colors py-1 px-3 rounded-md hover:bg-gray-700/50 disabled:cursor-not-allowed"
-                                                    title="Analisar complexidade da história"
-                                                >
-                                                    <ScaleIcon className="w-5 h-5" />
-                                                    <span>Analisar Complexidade</span>
-                                                </button>
-                                                <button
-                                                    onClick={() => setIsOriginalStoryModalOpen(true)}
-                                                    className="flex items-center gap-2 text-sm text-gray-300 hover:text-purple-300 transition-colors py-1 px-3 rounded-md hover:bg-gray-700/50"
-                                                    title="Visualizar a história original"
-                                                >
-                                                    <BookOpenIcon className="w-5 h-5" />
-                                                    <span>Ver História</span>
-                                                </button>
-                                            </>
-                                        ) : (
-                                            <>
-                                                <button
-                                                    onClick={() => setIsFeatureDescriptionModalOpen(true)}
-                                                    className="flex items-center gap-2 text-sm text-gray-300 hover:text-purple-300 transition-colors py-1 px-3 rounded-md hover:bg-gray-700/50"
-                                                    title="Visualizar a feature completa"
-                                                >
-                                                    <DocumentTextIcon className="w-5 h-5" />
-                                                    <span>Ver Feature</span>
-                                                </button>
-                                                 <button
-                                                    onClick={() => setIsOriginalStoryModalOpen(true)}
-                                                    className="flex items-center gap-2 text-sm text-gray-300 hover:text-purple-300 transition-colors py-1 px-3 rounded-md hover:bg-gray-700/50"
-                                                    title="Visualizar o cenário atual"
-                                                >
-                                                    <BookOpenIcon className="w-5 h-5" />
-                                                    <span>Ver Cenário</span>
-                                                </button>
-                                            </>
-                                        )}
-                                    </div>
-                                </div>
-                                {isAnalyzingComplexity && <Loader text="Analisando complexidade..." />}
-                                <div className="space-y-6 max-h-[50vh] overflow-y-auto pr-2">
-                                    {conversation.map(turn => (
-                                        <React.Fragment key={turn.id}>
-                                            <div className="flex gap-3 group">
-                                                <PersonaAvatar persona={turn.persona} />
-                                                <div className="flex-1 bg-gray-700/60 rounded-lg p-3 relative">
-                                                    <button onClick={() => handleCopy(turn.question, turn.id)} title="Copiar Pergunta" className="absolute top-2 right-2 text-gray-400 hover:text-white opacity-0 group-hover:opacity-100 transition-opacity">
-                                                        {copiedTurnId === turn.id ? <ClipboardCheckIcon className="w-4 h-4 text-green-400" /> : <ClipboardIcon className="w-4 h-4" />}
-                                                    </button>
-                                                    <p className="font-semibold text-sm text-gray-300">{turn.persona}</p>
-                                                    <p className="text-gray-200 pr-6">{turn.question}</p>
-                                                </div>
-                                            </div>
-                                            {turn.answer && (
-                                                <div className="flex gap-3 justify-end">
-                                                    <div className="flex-1 max-w-[85%] bg-purple-900/40 rounded-lg p-3 text-right">
-                                                        <p className="font-semibold text-sm text-gray-300">Sua Resposta</p>
-                                                        <p className="text-gray-200 whitespace-pre-wrap">{turn.answer}</p>
-                                                    </div>
-                                                    <div className="flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center border-2 border-purple-400 bg-gray-800">
-                                                    <UserIcon className="w-5 h-5 text-gray-300" />
-                                                    </div>
-                                                </div>
-                                            )}
-                                        </React.Fragment>
-                                    ))}
-                                    <div ref={conversationEndRef} />
-                                </div>
-                            </div>
-                            {currentTurn && !currentTurn.answer && !isAnswering && (
-                                <div className="bg-gray-800/50 rounded-lg p-4 lg:p-6 border-2 border-purple-500 shadow-lg relative group">
-                                    <button onClick={() => handleCopy(currentTurn.question, currentTurn.id)} title="Copiar Pergunta" className="absolute top-4 right-4 text-gray-400 hover:text-white opacity-0 group-hover:opacity-100 transition-opacity">
-                                         {copiedTurnId === currentTurn.id ? <ClipboardCheckIcon className="w-5 h-5 text-green-400" /> : <ClipboardIcon className="w-5 h-5" />}
-                                    </button>
-                                    <h3 className="text-lg font-semibold text-purple-300 mb-3">Pergunta de {currentTurn.persona}:</h3>
-                                    <p className="mb-4 text-gray-200 pr-8">{currentTurn.question}</p>
-                                    <textarea
-                                        value={currentAnswer}
-                                        onChange={(e) => setCurrentAnswer(e.target.value)}
-                                        placeholder="Digite sua resposta aqui..."
-                                        rows={4}
-                                        className="w-full p-2 bg-gray-900 border border-gray-600 rounded-md focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition text-gray-300"
-                                    />
-                                    <div className="flex justify-end gap-3 mt-4">
-                                        <button onClick={handleSkip} className="bg-gray-600 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded transition">Pular</button>
-                                        <button onClick={handleAnswerSubmit} disabled={!currentAnswer.trim()} className="bg-purple-600 hover:bg-purple-700 disabled:bg-gray-500 text-white font-bold py-2 px-4 rounded transition">Enviar Resposta</button>
-                                    </div>
-                                </div>
-                            )}
-                            {isAnswering && <Loader text="A IA está gerando a próxima pergunta..." />}
-                        </div>
-                        <div className="lg:col-span-5 h-fit lg:sticky top-24 space-y-6">
-                            {planningMode === 'story' ? (
-                                <>
-                                    <div className="bg-gray-800/50 rounded-lg p-4 lg:p-6 border border-gray-700">
-                                        <h3 className="text-lg font-semibold text-yellow-300 mb-4">Refinamento da História</h3>
-                                        <button
-                                            onClick={handleGetSuggestion}
-                                            disabled={isSuggesting}
-                                            className="w-full mb-4 bg-yellow-600 hover:bg-yellow-700 disabled:bg-yellow-900 disabled:cursor-not-allowed text-white font-bold py-2 px-4 rounded-md transition-transform transform hover:scale-105"
-                                        >
-                                            {suggestedStory ? 'Gerar Nova Sugestão' : 'Pedir Sugestão de Nova Versão ao PO'}
-                                        </button>
-                                        {isSuggesting && <Loader text="O PO Sênior está reescrevendo a história..." />}
-                                        {suggestedStory && !isSuggesting && (
-                                            <div className="space-y-4">
-                                                <div>
-                                                    <div className="flex justify-between items-center mb-2">
-                                                        <h4 className="font-semibold text-md">Versão Sugerida:</h4>
-                                                        <button onClick={() => handleCopy(suggestedStory)} title="Copiar" className="text-gray-400 hover:text-white transition">
-                                                            {copied ? <ClipboardCheckIcon className="w-5 h-5 text-green-400" /> : <ClipboardIcon className="w-5 h-5" />}
-                                                        </button>
-                                                    </div>
-                                                    <pre className="text-sm text-gray-300 whitespace-pre-wrap font-sans bg-gray-900/50 p-3 rounded-md max-h-60 overflow-y-auto">{suggestedStory}</pre>
-                                                </div>
-                                                <div className="border-t border-gray-700 pt-4">
-                                                    <h4 className="font-semibold text-md mb-2">Sugerir Modificações</h4>
-                                                    <textarea
-                                                        value={refinementPrompt}
-                                                        onChange={(e) => setRefinementPrompt(e.target.value)}
-                                                        placeholder="Ex: Simplifique o critério de aceitação 2 e adicione um critério sobre tratamento de erros."
-                                                        rows={3}
-                                                        className="w-full p-2 bg-gray-900 border border-gray-600 rounded-md focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition text-gray-300"
-                                                    />
-                                                    <button
-                                                        onClick={handleRefineSuggestion}
-                                                        disabled={isRefining || !refinementPrompt.trim()}
-                                                        className="w-full mt-2 bg-purple-600 hover:bg-purple-700 disabled:bg-gray-500 text-white font-bold py-2 px-4 rounded-md transition"
-                                                    >
-                                                        {isRefining ? 'Refinando...' : 'Refinar Sugestão'}
-                                                    </button>
-                                                </div>
-                                            </div>
-                                        )}
-                                        {isRefining && <Loader text="Refinando a sugestão..." />}
-                                    </div>
-                                    <div className="bg-gray-800/50 rounded-lg p-4 lg:p-6 border border-gray-700">
-                                        <h3 className="text-lg font-semibold text-green-300 mb-4 flex items-center gap-2"><ClipboardListIcon className="w-6 h-6"/>Cenários de Teste</h3>
-                                        <button onClick={handleGenerateScenarios} disabled={isGeneratingScenarios} className="w-full mb-4 bg-green-600 hover:bg-green-700 disabled:bg-green-900 disabled:cursor-not-allowed text-white font-bold py-2 px-4 rounded-md transition-transform transform hover:scale-105">Sugerir Cenários de Teste</button>
-                                        {isGeneratingScenarios && <Loader text="O QA Sênior está elaborando os testes..." />}
-                                        {testScenarios && !isGeneratingScenarios && (
-                                            <div>
-                                                <div className="flex justify-between items-center mb-2"><h4 className="font-semibold text-md">Cenários Sugeridos:</h4><button onClick={() => handleCopy(testScenarios)} title="Copiar Cenários" className="text-gray-400 hover:text-white transition">{copied ? <ClipboardCheckIcon className="w-5 h-5 text-green-400" /> : <ClipboardIcon className="w-5 h-5" />}</button></div>
-                                                <pre className="text-sm text-gray-300 whitespace-pre-wrap font-sans bg-gray-900/50 p-3 rounded-md max-h-60 overflow-y-auto">{testScenarios}</pre>
-                                            </div>
-                                        )}
-                                    </div>
-                                    <div className="bg-gray-800/50 rounded-lg p-4 lg:p-6 border border-gray-700">
-                                        <h3 className="text-lg font-semibold text-blue-300 mb-4 flex items-center gap-2"><ViewBoardsIcon className="w-6 h-6"/>Prototipagem Visual</h3>
-                                        <button onClick={handleGeneratePrototype} disabled={isGeneratingPrototype} className="w-full mb-2 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-900 disabled:cursor-not-allowed text-white font-bold py-2 px-4 rounded-md transition-transform transform hover:scale-105">Sugerir Protótipo Visual</button>
-                                        <details className="mt-4">
-                                            <summary className="cursor-pointer text-sm text-gray-400 hover:text-white">
-                                                Usar modelo de protótipo (opcional)
-                                            </summary>
-                                            <textarea
-                                                value={localPrototypeModel}
-                                                onChange={(e) => setLocalPrototypeModel(e.target.value)}
-                                                placeholder="Cole um trecho de código HTML/Tailwind aqui para guiar a IA..."
-                                                rows={5}
-                                                className="w-full mt-2 p-2 bg-gray-900 border border-gray-600 rounded-md focus:ring-2 focus:ring-purple-500 transition text-gray-300 font-mono text-xs"
-                                            />
-                                        </details>
-                                        {isGeneratingPrototype && <div className="mt-4"><Loader text="A IA está desenhando o protótipo..." /></div>}
-                                    </div>
-                                </>
-                            ) : ( // BDD Mode Panel
-                                <div className="bg-gray-800/50 rounded-lg p-4 lg:p-6 border border-gray-700">
-                                    <h3 className="text-lg font-semibold text-yellow-300 mb-1">
-                                        {planningScope === 'single' ? 'Construtor de Cenário BDD' : 'Construtor de Cenários BDD (Grupo)'}
-                                    </h3>
-                                    <p className="text-sm text-gray-400 mb-4">
-                                        {planningScope === 'single' ? `Cenário: ` : `Cenários: `}
-                                        <span className="font-semibold">
-                                            {planningScope === 'single' && originalStory?.title}
-                                            {planningScope === 'group' && currentGroupIndexes.map(i => bddScenarios[i].title).join(', ')}
-                                        </span>
-                                    </p>
-                                    <button onClick={handleGenerateGherkin} disabled={isGeneratingGherkin || !!generatedSingleGherkin || !!generatedGroupGherkin} className="w-full mb-4 bg-yellow-600 hover:bg-yellow-700 disabled:bg-yellow-900 disabled:cursor-not-allowed text-white font-bold py-2 px-4 rounded-md transition-transform transform hover:scale-105">Gerar Cenário(s) em Gherkin</button>
-                                    {isGeneratingGherkin && <Loader text="A IA está escrevendo o Gherkin..." />}
-                                    {generatedSingleGherkin && !isGeneratingGherkin && (
-                                        <div>
-                                            <div className="flex justify-between items-center mb-2"><h4 className="font-semibold text-md">Gherkin Gerado:</h4><button onClick={() => handleCopy(generatedSingleGherkin)} title="Copiar Gherkin" className="text-gray-400 hover:text-white transition">{copied ? <ClipboardCheckIcon className="w-5 h-5 text-green-400" /> : <ClipboardIcon className="w-5 h-5" />}</button></div>
-                                            <pre className="text-sm text-gray-300 whitespace-pre-wrap font-mono bg-gray-900/50 p-3 rounded-md max-h-80 overflow-y-auto">{generatedSingleGherkin}</pre>
-                                            <button onClick={handleCompleteBddPlanning} className="w-full mt-4 bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded-md transition">Concluir e Voltar para a Lista</button>
-                                        </div>
-                                    )}
-                                    {generatedGroupGherkin && !isGeneratingGherkin && (
-                                        <div>
-                                            <h4 className="font-semibold text-md mb-2">Gherkin Gerado:</h4>
-                                            <div className="space-y-4 max-h-80 overflow-y-auto pr-2">
-                                                {generatedGroupGherkin.map(item => (
-                                                    <div key={item.title}>
-                                                        <h5 className="font-semibold text-purple-300 mb-1">{item.title}</h5>
-                                                        <pre className="text-sm text-gray-300 whitespace-pre-wrap font-mono bg-gray-900/50 p-3 rounded-md">{item.gherkin}</pre>
-                                                    </div>
-                                                ))}
-                                            </div>
-                                            <button onClick={handleCompleteBddPlanning} className="w-full mt-4 bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded-md transition">Concluir e Voltar para a Lista</button>
-                                        </div>
-                                    )}
-                                </div>
-                            )}
-                            {error && !isSuggesting && !isRefining && !isGeneratingScenarios && !isGeneratingPrototype && !isGeneratingGherkin && <p className="text-red-400 mt-2 text-sm text-center p-2 bg-red-900/20 rounded-md">{error}</p>}
-                        </div>
-                    </main>
+                return (
+                    <div className="flex flex-col items-center justify-center min-h-[calc(100vh-150px)]">
+                        <Loader text="A IA está trabalhando..." />
+                    </div>
                 );
+            case 'planning':
+                return (
+                     <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                        <div className="lg:col-span-2 bg-gray-800/50 p-6 rounded-lg">
+                           {/* Conversation History */}
+                        </div>
+                        <div className="bg-gray-800/50 p-6 rounded-lg self-start sticky top-28">
+                          {/* Sidebar */}
+                        </div>
+                     </div>
+                );
+            case 'story_selection':
+                return <StorySelectionScreen stories={splitStories} onSelectStory={handleSelectSplitStory} />;
             default:
-                return null;
+                return <div>Estado não implementado: {appState}</div>
         }
-    }
-
+    };
 
     return (
         <div className="bg-gray-900 text-gray-200 min-h-screen font-sans">
-            <Header 
-                onRestart={headerAction} 
-                showRestart={appState !== 'home'} 
-                text={headerText}
-            />
-            {renderContent()}
-            {isOriginalStoryModalOpen && originalStory && (
-                <OriginalStoryModal 
-                    story={originalStory} 
-                    onClose={() => setIsOriginalStoryModalOpen(false)}
-                    titleOverride={planningMode === 'bdd' ? 'Cenário Atual' : undefined}
-                />
+            <Header onRestart={headerAction} showRestart={appState !== 'home'} text={headerText} />
+            <main className="container mx-auto p-4">
+                {renderContent()}
+            </main>
+
+            {isFeaturesModalOpen && <FeaturesModal onClose={() => setIsFeaturesModalOpen(false)} />}
+            {isModelStoryModalOpen && <ModelStoryModal initialModel={modelStory} onSave={setModelStory} onClose={() => setIsModelStoryModalOpen(false)} />}
+            {isPrototypeModelModalOpen && <PrototypeModelModal initialModel={prototypeModel} onSave={setPrototypeModel} onClose={() => setIsPrototypeModelModalOpen(false)} />}
+            {confirmationAction && <ConfirmationModal action={confirmationAction} onClose={() => setConfirmationAction(null)} />}
+            
+            {originalStory && isOriginalStoryModalOpen && (
+                <OriginalStoryModal story={originalStory} onClose={() => setIsOriginalStoryModalOpen(false)} />
             )}
+
             {isFeatureDescriptionModalOpen && (
-                 <FeatureDescriptionModal 
-                    description={featureDescription}
-                    onClose={() => setIsFeatureDescriptionModalOpen(false)}
+                <FeatureDescriptionModal description={featureDescription} onClose={() => setIsFeatureDescriptionModalOpen(false)} />
+            )}
+            
+            {complexityAnalysis && <ComplexityAnalysisModal result={complexityAnalysis} onClose={() => setComplexityAnalysis(null)} onAcceptSplit={handleAcceptSplit} />}
+            
+            {suggestedPrototype && isPrototypeModalOpen && (
+                <PrototypeModal prototypeCode={suggestedPrototype} onClose={() => setIsPrototypeModalOpen(false)} title="Protótipo Visual da Funcionalidade" />
+            )}
+            
+            {poChecklistContent && isPoChecklistModalOpen && (
+                 <OriginalStoryModal 
+                    story={{ title: "Checklist de Pré-Homologação", description: poChecklistContent }} 
+                    onClose={() => setIsPoChecklistModalOpen(false)} 
+                    titleOverride="Checklist de Pré-Homologação" 
+                    onDownload={() => handleDownload(poChecklistContent, 'po-checklist.txt')}
+                 />
+            )}
+            
+            {stepDefContent && isStepDefModalOpen && (
+                <OriginalStoryModal 
+                    story={{ title: `Step Definitions (${selectedTechnology})`, description: stepDefContent }} 
+                    onClose={() => setIsStepDefModalOpen(false)}
+                    titleOverride={`Step Definitions (${selectedTechnology})`} 
+                    onDownload={() => handleDownload(stepDefContent, `steps.${getFileExtension(selectedTechnology)}`)}
                 />
             )}
-             {isFeaturesModalOpen && <FeaturesModal onClose={() => setIsFeaturesModalOpen(false)} />}
-             {complexityAnalysis && (
-                <ComplexityAnalysisModal 
-                    result={complexityAnalysis} 
-                    onClose={() => setComplexityAnalysis(null)}
-                    onAcceptSplit={handleAcceptSplit}
-                />
-             )}
-             {isModelStoryModalOpen && (
-                <ModelStoryModal
-                    initialModel={modelStory}
-                    onClose={() => setIsModelStoryModalOpen(false)}
-                    onSave={(model) => setModelStory(model)}
-                />
-             )}
-            {isPrototypeModelModalOpen && (
-                <PrototypeModelModal
-                    initialModel={prototypeModel}
-                    onClose={() => setIsPrototypeModelModalOpen(false)}
-                    onSave={(model) => setPrototypeModel(model)}
-                />
-            )}
+            
             {isTechSelectionModalOpen && (
-                <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4" onClick={() => setIsTechSelectionModalOpen(false)}>
-                    <div className="bg-gray-800 rounded-lg shadow-xl max-w-sm w-full p-6 border border-gray-700 animate-fade-in-up" onClick={e => e.stopPropagation()}>
-                        <h3 className="text-lg font-semibold text-purple-300 mb-4">Selecionar Tecnologia</h3>
+                <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4">
+                     <div className="bg-gray-800 rounded-lg shadow-xl max-w-md w-full p-6 border border-gray-700 animate-fade-in-up">
+                        <h3 className="text-xl font-semibold text-purple-300 mb-4">Selecione a Tecnologia</h3>
                         <select
                             value={selectedTechnology}
                             onChange={(e) => setSelectedTechnology(e.target.value)}
-                            className="w-full p-2 bg-gray-900 border border-gray-600 rounded-md focus:ring-2 focus:ring-purple-500 transition text-gray-300"
+                            className="w-full p-2 bg-gray-900 border border-gray-700 rounded-md focus:ring-2 focus:ring-purple-500 transition text-gray-300"
                         >
                             <option>JavaScript - Cypress</option>
                             <option>Python - Behave</option>
@@ -2348,57 +2254,27 @@ const App: React.FC = () => {
                             <option>PHP</option>
                             <option>C#</option>
                         </select>
-                        <div className="flex justify-end gap-3 mt-4">
+                        <div className="flex justify-end gap-3 mt-6">
                             <button onClick={() => setIsTechSelectionModalOpen(false)} className="bg-gray-600 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded transition">Cancelar</button>
-                            <button onClick={() => handleGenerateStepDefs(`Funcionalidade: ${featureDescription}\n\n${bddScenarios.filter(s => s.completed && s.gherkin).map(s => s.gherkin).join('\n\n')}`)} className="bg-purple-600 hover:bg-purple-700 text-white font-bold py-2 px-4 rounded transition">Gerar</button>
+                            <button onClick={() => {
+                                if (!bddScenarios.every(s => s.completed)) return;
+                                const fullFeature = `Funcionalidade: ${featureDescription}\n\n` + bddScenarios.map(s => s.gherkin).join('\n\n');
+                                handleGenerateStepDefs(fullFeature);
+                            }} className="bg-purple-600 hover:bg-purple-700 text-white font-bold py-2 px-4 rounded transition">Gerar</button>
                         </div>
-                    </div>
+                     </div>
                 </div>
             )}
-            {isPoChecklistModalOpen && poChecklistContent && (
-                 <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4" onClick={() => setIsPoChecklistModalOpen(false)}>
-                    <div className="bg-gray-800 rounded-lg shadow-xl max-w-3xl w-full p-6 border border-gray-700 animate-fade-in-up" onClick={e => e.stopPropagation()}>
-                         <div className="flex justify-between items-center mb-4">
-                            <h3 className="text-xl font-semibold text-purple-300">Checklist de Pré-Homologação</h3>
-                            <button onClick={() => handleCopy(poChecklistContent)} title="Copiar Checklist" className="text-gray-400 hover:text-white transition">
-                                {copied ? <ClipboardCheckIcon className="w-5 h-5 text-green-400" /> : <ClipboardIcon className="w-5 h-5" />}
-                            </button>
-                        </div>
-                        <div className="max-h-[70vh] overflow-y-auto pr-2">
-                           <pre className="text-sm text-gray-300 whitespace-pre-wrap font-sans bg-gray-900/50 p-3 rounded-md">{poChecklistContent}</pre>
-                        </div>
-                         <div className="flex justify-end mt-6">
-                            <button onClick={() => setIsPoChecklistModalOpen(false)} className="bg-gray-600 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded">Fechar</button>
-                        </div>
-                    </div>
-                 </div>
-            )}
-            {isStepDefModalOpen && stepDefContent && (
-                 <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4" onClick={() => setIsStepDefModalOpen(false)}>
-                    <div className="bg-gray-800 rounded-lg shadow-xl max-w-3xl w-full p-6 border border-gray-700 animate-fade-in-up" onClick={e => e.stopPropagation()}>
-                         <div className="flex justify-between items-center mb-4">
-                            <h3 className="text-xl font-semibold text-purple-300">Definições de Steps ({selectedTechnology})</h3>
-                            <button onClick={() => handleCopy(stepDefContent)} title="Copiar Código" className="text-gray-400 hover:text-white transition">
-                                {copied ? <ClipboardCheckIcon className="w-5 h-5 text-green-400" /> : <ClipboardIcon className="w-5 h-5" />}
-                            </button>
-                        </div>
-                        <div className="max-h-[70vh] overflow-y-auto pr-2">
-                           <pre className="text-sm text-gray-300 whitespace-pre-wrap font-mono bg-gray-900/50 p-3 rounded-md">{stepDefContent}</pre>
-                        </div>
-                         <div className="flex justify-end mt-6">
-                            <button onClick={() => setIsStepDefModalOpen(false)} className="bg-gray-600 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded">Fechar</button>
-                        </div>
-                    </div>
-                 </div>
-            )}
-            {isPrototypeModalOpen && suggestedPrototype && (
-                <PrototypeModal
-                    prototypeCode={suggestedPrototype}
-                    onClose={() => setIsPrototypeModalOpen(false)}
-                    title="Protótipo Visual Gerado"
-                />
-            )}
-            {confirmationAction && <ConfirmationModal action={confirmationAction} onClose={() => setConfirmationAction(null)} />}
+
+            <DataTableModal
+                title="Inserir Dados Tabulares"
+                columns={dataTableColumns}
+                isOpen={isDataTableModalOpen}
+                onClose={() => setIsDataTableModalOpen(false)}
+                onConfirm={(tableString) => {
+                    setCurrentAnswer(prev => prev + tableString);
+                }}
+            />
         </div>
     );
 };

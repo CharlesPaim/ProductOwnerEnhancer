@@ -9,6 +9,58 @@ const ai = new GoogleGenAI({ apiKey: process.env.API_KEY! });
 
 const model = 'gemini-2.5-flash';
 
+export interface ScenarioOutlineResult {
+  template: string;
+  headers: string[];
+}
+
+
+export const extractTableColumnsFromQuestion = async (question: string): Promise<string[]> => {
+    try {
+        const prompt = `
+        Analise a seguinte pergunta e extraia os nomes das colunas para uma tabela de dados que responderia a essa pergunta.
+        Se a pergunta não parece solicitar dados tabulares, retorne um array vazio.
+        A resposta deve ser um array de strings JSON. A resposta deve ser em português do Brasil.
+
+        Pergunta: "${question}"
+
+        Exemplo 1:
+        Pergunta: "Poderia listar os usuários que devem existir, com seus nomes e e-mails?"
+        Resposta: ["Nome", "E-mail"]
+
+        Exemplo 2:
+        Pergunta: "Quais são os campos necessários para o formulário de cadastro? Informe o nome do campo, tipo e se é obrigatório."
+        Resposta: ["Nome do Campo", "Tipo", "Obrigatório"]
+        
+        Exemplo 3:
+        Pergunta: "Qual é o fluxo principal do usuário?"
+        Resposta: []
+        `;
+
+        const responseSchema = {
+            type: Type.ARRAY,
+            items: { type: Type.STRING }
+        };
+
+        const response = await ai.models.generateContent({
+            model: model,
+            contents: prompt,
+            config: {
+                responseMimeType: "application/json",
+                responseSchema,
+            },
+        });
+        
+        const jsonString = response.text;
+        return JSON.parse(jsonString) as string[];
+
+    } catch (error) {
+        console.error("Error extracting table columns:", error);
+        return [];
+    }
+};
+
+
 const personaToKey = (p: Persona): string => {
     switch(p) {
         case Persona.Dev: return 'developerQuestion';
@@ -465,12 +517,14 @@ export const generatePrototypeFromFeature = async (featureFileContent: string, m
         ${modelPrototypePrompt}
 
         **Instruções:**
-        1. Analise a declaração da 'Funcionalidade' e cada 'Cenário' para entender os elementos da interface (botões, formulários, textos, etc.) e as interações do usuário.
-        2. Crie um protótipo visual que represente a tela principal da funcionalidade, incluindo os elementos mencionados nos cenários.
-        3. Use apenas HTML e classes do Tailwind CSS. O código deve ser contido em um único bloco, sem dependências externas de JS ou CSS além do Tailwind.
-        4. Foque em representar visualmente a funcionalidade descrita. O protótipo não precisa ser funcional.
-        5. Se os cenários descrevem um formulário, inclua labels, inputs apropriados e botões de submissão.
-        6. **IMPORTANTE:** Adicione seletores estáveis a todos os elementos interativos (inputs, botões, selects, etc.) para facilitar os testes automatizados. Use atributos como 'id', 'name', ou 'data-cy' de forma lógica (ex: <input type="text" name="username" id="username">).
+        1. Analise a declaração da 'Funcionalidade', 'Background' e cada 'Cenário' para entender os elementos da interface e as interações.
+        2. Crie um protótipo visual que represente a tela principal da funcionalidade.
+        3. Use apenas HTML e classes do Tailwind CSS. O código deve ser contido em um único bloco.
+        4. O protótipo não precisa ser funcional.
+        5. Se os cenários descrevem um formulário, inclua labels, inputs e botões.
+        6. **IMPORTANTE:** Adicione seletores estáveis a todos os elementos interativos (inputs, botões, etc.) para facilitar os testes automatizados. Use atributos como 'id', 'name', ou 'data-cy'.
+        7. Se houver uma seção 'Background', use-a para definir o contexto geral ou os elementos estáticos da tela do protótipo.
+        8. Se houver um 'Scenario Outline' com uma tabela 'Examples', use os dados da **PRIMEIRA LINHA** de dados da tabela para pré-popular os campos de formulário no protótipo. Por exemplo, se a primeira linha tiver <email> como 'teste@exemplo.com', o campo de email no protótipo deve ter 'value="teste@exemplo.com"'.
 
         Produza apenas o bloco de código HTML/CSS, sem nenhuma explicação, comentário extra ou a tag \`\`\`html.
         `;
@@ -493,6 +547,7 @@ export const generateBddScenarios = async (featureDescription: string): Promise<
         Você é um especialista em Behavior-Driven Development (BDD).
         Sua tarefa é analisar a descrição de uma funcionalidade e sugerir uma lista de títulos de cenários de teste.
         Foque em cenários de sucesso, de falha e de casos de borda.
+        Se você identificar vários cenários que testam a mesma lógica com dados de entrada diferentes (por exemplo, login com credenciais válidas, inválidas, em branco), sugira um único 'Scenario Outline: [Título do Cenário]' em vez de múltiplos cenários individuais.
 
         **Descrição da Funcionalidade:**
         ---
@@ -523,6 +578,61 @@ export const generateBddScenarios = async (featureDescription: string): Promise<
     } catch (error) {
         console.error("Error generating BDD scenarios:", error);
         throw new Error("Falha ao gerar os cenários BDD.");
+    }
+};
+
+export const generateInitialScenarioOutline = async (featureDescription: string, outlineTitle: string): Promise<ScenarioOutlineResult> => {
+    try {
+        const prompt = `
+        Você é um especialista em BDD e Gherkin.
+        Sua tarefa é gerar um template de "Scenario Outline" e os cabeçalhos da tabela "Examples" com base no título do cenário e na descrição da funcionalidade.
+
+        **Funcionalidade Principal:**
+        ---
+        ${featureDescription}
+        ---
+
+        **Título do Scenario Outline:**
+        ---
+        ${outlineTitle}
+        ---
+
+        **Instruções:**
+        1.  Escreva o template do cenário usando a sintaxe Gherkin, começando com 'Scenario Outline: ...'.
+        2.  Use placeholders entre <> (ex: <email>, <senha>) para as partes variáveis do cenário.
+        3.  Identifique os placeholders que você usou e retorne-os como um array de strings. A ordem dos cabeçalhos deve corresponder à ordem em que aparecem no template.
+        4.  Use os keywords do Gherkin em **inglês** ('Scenario Outline', 'Given', 'When', 'Then', 'And'). O texto dos passos deve permanecer em português.
+
+        Retorne um objeto JSON válido com as chaves "template" e "headers".
+        `;
+        
+        const responseSchema = {
+            type: Type.OBJECT,
+            properties: {
+                template: { type: Type.STRING },
+                headers: { 
+                    type: Type.ARRAY,
+                    items: { type: Type.STRING }
+                }
+            },
+            required: ["template", "headers"]
+        };
+
+        const response = await ai.models.generateContent({
+            model: model,
+            contents: prompt,
+            config: {
+                responseMimeType: "application/json",
+                responseSchema,
+            },
+        });
+
+        const jsonString = response.text;
+        return JSON.parse(jsonString) as ScenarioOutlineResult;
+
+    } catch (error) {
+        console.error("Error generating initial scenario outline:", error);
+        throw new Error("Falha ao gerar o template do Scenario Outline.");
     }
 };
 
@@ -640,15 +750,12 @@ export const generateGherkinFromConversation = async (featureDescription: string
         ${history}
         ---
 
-        Com base nas informações, escreva um cenário Gherkin.
-        - Comece com 'Cenário: [Título do Cenário]'.
-        - Use 'Dado' para o contexto/precondições.
-        - Use 'Quando' para a ação principal.
-        - Use 'Então' para o resultado/verificação.
-        - Use 'E' para continuar os passos de Dado, Quando ou Então, se necessário.
-        - Seja claro e use a linguagem do domínio do negócio, conforme extraído da conversa.
+        Com base nas informações, escreva um cenário Gherkin:
+        - **Regra Principal:** Use os keywords do Gherkin em **inglês** ('Scenario', 'Given', 'When', 'Then', 'And'). O texto dos passos deve permanecer em português.
+        - **Doc Strings:** Se a resposta do usuário for um texto de múltiplas linhas que precise ser verificado na íntegra (como o corpo de um e-mail ou um payload JSON), é mandatório que você formate esse texto como um argumento de Doc String, usando três aspas duplas (""").
+        - **Data Tables:** Se a resposta do usuário contiver uma tabela formatada com pipes (|), formate-a como uma Data Table do Gherkin, alinhada sob o step correspondente.
 
-        Produza apenas o bloco de texto Gherkin para este cenário, em português do Brasil. Não inclua a 'Feature:' nem comentários extras.
+        Produza apenas o bloco de texto Gherkin completo para este cenário, começando com 'Scenario: ...'. Não inclua a 'Feature:' nem comentários extras.
         `;
 
         const response = await ai.models.generateContent({
@@ -695,15 +802,13 @@ export const generateGherkinFromGroupConversation = async (featureDescription: s
         ${history}
         ---
 
-        Com base em TODA a discussão, gere o Gherkin para CADA um dos cenários solicitados.
-        - Para cada cenário, comece com 'Cenário: [Título do Cenário]'.
-        - Use 'Dado' para o contexto/precondições.
-        - Use 'Quando' para a ação principal.
-        - Use 'Então' para o resultado/verificação.
-        - Use 'E' para continuar os passos.
+        Com base em TODA a discussão, gere o Gherkin para CADA um dos cenários solicitados, seguindo estas regras:
+        - **Regra Principal:** Use os keywords do Gherkin em **inglês** ('Scenario', 'Given', 'When', 'Then', 'And'). O texto dos passos deve permanecer em português.
+        - **Doc Strings:** Se a resposta do usuário for um texto de múltiplas linhas que precise ser verificado na íntegra (como o corpo de um e-mail ou um payload JSON), é mandatório que você formate esse texto como um argumento de Doc String, usando três aspas duplas (""").
+        - **Data Tables:** Se a resposta do usuário contiver uma tabela formatada com pipes (|), formate-a como uma Data Table do Gherkin, alinhada sob o step correspondente.
         - Reutilize steps quando fizer sentido entre os cenários.
 
-        Retorne um array de objetos JSON, em português do Brasil, onde cada objeto representa um cenário e contém as chaves "title" e "gherkin".
+        Retorne um array de objetos JSON, onde cada objeto representa um cenário e contém as chaves "title" e "gherkin". O valor de "gherkin" deve ser o bloco de texto completo, começando com 'Scenario: ...'.
         `;
 
         const responseSchema = {
@@ -756,6 +861,7 @@ export const generatePoChecklist = async (featureFileContent: string): Promise<s
         2. Descreva os passos de forma imperativa e simples (ex: "Acesse a tela de login", "Preencha o campo 'email' com 'teste@teste.com'", "Clique no botão 'Entrar'").
         3. Converta os passos 'Dado', 'Quando' e 'Então' em ações e verificações concretas e observáveis.
         4. O resultado deve ser um checklist formatado, fácil de ler e seguir por alguém sem conhecimento técnico.
+        5. **IMPORTANTE:** Se encontrar um 'Scenario Outline', você deve criar um item de checklist separado para CADA LINHA da tabela 'Examples'. O título do checklist deve indicar qual conjunto de dados está sendo usado (ex: "Cenário: Login - Exemplo 1 (usuário válido)"). Personalize os passos do roteiro de teste com os dados específicos de cada linha.
 
         Produza apenas o checklist em português do Brasil. Não inclua comentários extras, preâmbulo ou despedida.
         `;
@@ -782,43 +888,50 @@ export const generateStepDefinitions = async (featureFileContent: string, techno
                 - Inclua importações como 'from behave import *', 'from selenium.webdriver.common.by import By', 'from selenium.webdriver.support.ui import WebDriverWait', e 'from selenium.webdriver.support import expected_conditions as EC'.
                 - Use 'context.browser' para acessar a instância do navegador.
                 - Para esperas, use 'WebDriverWait' e 'expected_conditions' para tornar os testes mais estáveis.
-                - Faça suposições lógicas para seletores de elementos (ex: By.NAME, "username", By.ID, "password").`;
+                - Faça suposições lógicas para seletores de elementos (ex: By.NAME, "username", By.ID, "password").
+                - Para Data Tables, use 'context.table' para acessar os dados.
+                - Para Doc Strings, o argumento correspondente será 'context.text'.`;
                 break;
             case 'JavaScript - Cypress':
                 frameworkDetails = `
                 - Use a sintaxe do Cypress com 'Given', 'When', 'Then' do 'cypress-cucumber-preprocessor'.
                 - Use comandos do Cypress como 'cy.visit()', 'cy.get()', '.type()', '.click()'.
                 - Para asserções, use '.should()'.
-                - Faça suposições lógicas para seletores de elementos (ex: '[data-cy=username]', 'input[name="username"]').`;
+                - Faça suposições lógicas para seletores de elementos (ex: '[data-cy=username]', 'input[name="username"]').
+                - Para Data Tables, o método receberá um objeto 'dataTable'. Use 'dataTable.hashes()' para obter os dados.
+                - Para Doc Strings, o método receberá a string como um argumento.`;
                 break;
             case 'Java - Cucumber':
                  frameworkDetails = `
                 - Use a sintaxe do Cucumber-JVM com anotações (@Given, @When, @Then).
                 - Use 'Selenium WebDriver' para a interação com o navegador.
-                - Inclua importações necessárias (io.cucumber.java.en.*, org.openqa.selenium.*).
+                - Inclua importações necessárias (io.cucumber.java.en.*, io.cucumber.datatable.DataTable, org.openqa.selenium.*).
                 - Faça suposições lógicas para seletores de elementos (ex: By.name("username")).
-                - Use asserções do JUnit ou TestNG (ex: Assert.assertTrue()).`;
+                - Use asserções do JUnit ou TestNG (ex: Assert.assertTrue()).
+                - Para Data Tables, o método receberá um objeto 'DataTable'.
+                - Para Doc Strings, o método receberá a 'String' como um argumento.`;
                 break;
             case 'PHP':
                 frameworkDetails = `
                 - Gere uma classe de contexto que implementa 'Behat\\Behat\\Context\\Context'.
                 - Use a biblioteca 'Behat' com 'Mink' para a interação com o navegador.
-                - Inclua as importações necessárias como 'use Behat\\Behat\\Context\\Context;' e 'use Behat\\Gherkin\\Node\\PyStringNode;'.
+                - Inclua as importações necessárias como 'use Behat\\Behat\\Context\\Context;', 'use Behat\\Gherkin\\Node\\PyStringNode;' e 'use Behat\\Gherkin\\Node\\TableNode;'.
                 - A classe de contexto deve ter um método para acessar a sessão do Mink (ex: 'getSession()').
-                - Use os métodos do Mink para interagir com a página, como '\\$this->getSession()->getPage()->fillField('username', \\$username);' e '\\$this->getSession()->getPage()->pressButton('Entrar');'.
-                - Para asserções, use exceções ou a biblioteca de asserções que preferir (ex: 'PHPUnit\\Framework\\Assert::assertContains()').
-                - Faça suposições lógicas para seletores de elementos (ex: o texto de um label, o 'name' de um input).`;
+                - Use os métodos do Mink para interagir com a página.
+                - Faça suposições lógicas para seletores de elementos.
+                - Para Data Tables, use a type-hint 'TableNode' para o argumento.
+                - Para Doc Strings, use a type-hint 'PyStringNode' para o argumento.`;
                 break;
             case 'C#':
                 frameworkDetails = `
                 - Gere uma classe com o atributo '[Binding]' do SpecFlow.
                 - Use 'Selenium WebDriver' para a interação com o navegador.
                 - Inclua as importações necessárias ('using TechTalk.SpecFlow;', 'using OpenQA.Selenium;', 'using NUnit.Framework;').
-                - A classe de contexto deve receber uma instância de 'IWebDriver' via injeção de dependência no construtor.
+                - A classe de contexto deve receber uma instância de 'IWebDriver' via injeção de dependência.
                 - Use atributos como '[Given]', '[When]', '[Then]' nos métodos.
-                - Use os métodos do Selenium para interagir com a página, como '_driver.FindElement(By.Name("username")).SendKeys(username);'.
-                - Para asserções, use o framework NUnit (ex: 'Assert.IsTrue(_driver.FindElement(By.TagName("h1")).Text.Contains("Bem-vindo"));').
-                - Faça suposições lógicas para seletores de elementos (ex: By.Name, By.Id).`;
+                - Faça suposições lógicas para seletores de elementos (ex: By.Name, By.Id).
+                - Para Data Tables, o método receberá um objeto 'Table'.
+                - Para Doc Strings, o método receberá 'string' como um argumento.`;
                 break;
             default:
                 frameworkDetails = `Siga as melhores práticas para a tecnologia ${technology}.`
@@ -839,9 +952,12 @@ export const generateStepDefinitions = async (featureFileContent: string, techno
         1.  Analise o arquivo .feature e identifique todos os passos únicos (Dado, Quando, Então, E).
         2.  Para cada passo, gere a função/método correspondente com uma **implementação completa**, não apenas um esqueleto.
         3.  Use expressões regulares apropriadas para capturar parâmetros nos passos (ex: valores entre aspas).
-        4.  **Faça suposições inteligentes sobre os seletores de elementos da página**. Por exemplo, para um campo de "username", você pode tentar um seletor como \`[name="username"]\`, \`#username\`, ou similar. Para botões, use seu texto ou um seletor genérico como \`button[type="submit"]\`.
+        4.  **Faça suposições inteligentes sobre os seletores de elementos da página**. Por exemplo, para um campo de "username", você pode tentar um seletor como \`[name="username"]\`, \`#username\`, ou similar.
         5.  **Inclua todas as importações necessárias** no início do arquivo para que o código seja o mais próximo possível de "copiar e colar".
-        6.  Use **esperas explícitas** (como WebDriverWait do Selenium ou equivalentes) para aguardar que os elementos apareçam na tela, tornando o teste mais robusto.
+        6.  Use **esperas explícitas** (como WebDriverWait do Selenium) para tornar o teste mais robusto.
+        7.  Se houver um 'Scenario Outline', os parâmetros dos placeholders (ex: <email>) devem ser recebidos como argumentos nos métodos/funções das steps.
+        8.  Se um step tiver um 'Doc String' (texto entre """), o método/função correspondente deve receber esse texto como um argumento.
+        9.  Se um step tiver uma 'Data Table' (tabela com |), o método/função correspondente deve receber essa tabela como um objeto ou estrutura de dados apropriada (ex: um objeto Table, DataTable, etc.).
 
         **Diretrizes Específicas para a Tecnologia:**
         ${frameworkDetails}
