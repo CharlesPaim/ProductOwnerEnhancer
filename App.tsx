@@ -1,3 +1,4 @@
+
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { Persona, ParsedStory, RedmineIssue, ConversationTurn, ComplexityAnalysisResult, SplitStory, BddFeatureSuggestion, GherkinScenario } from './types';
 import { generateInitialQuestions, suggestNewStoryVersion, generateFollowUpQuestion, generateNewStory, refineSuggestedStory, generateTestScenarios, analyzeStoryComplexity, generateStoriesFromTranscript, generatePrototype, generateBddScenarios, generateBddFollowUpQuestion, generateGherkinFromConversation, generatePoChecklist, generateStepDefinitions, convertDocumentToBdd, analyzeAndBreakdownDocument, analyzePlanningTranscript, analyzeHomologationTranscript, generatePrototypeFromFeature, generateBddFollowUpQuestionForGroup, generateGherkinFromGroupConversation, extractTableColumnsFromQuestion, generateInitialScenarioOutline } from './services/geminiService';
@@ -111,7 +112,7 @@ const FeaturesModal = ({ onClose }: { onClose: () => void; }) => (
                         <span className="font-semibold">Analisar Transcrição (Contextual):</span> Analise transcrições com objetivos específicos.
                         <ul className="list-[circle] list-inside ml-4 mt-1 text-gray-400">
                             <li><span className="font-semibold text-gray-300">Levantamento de Requisitos:</span> Gera novas histórias a partir da discussão.</li>
-                            <li><span className="font-semibold text-gray-300">Reunião de Planeamento:</span> Valida uma história existente contra o que foi discutido.</li>
+                            <li><span className="font-semibold text-gray-300">Reunião de Planejamento:</span> Valida uma história existente contra o que foi discutido.</li>
                             <li><span className="font-semibold text-gray-300">Sessão de Homologação:</span> Extrai feedback e pontos de ação.</li>
                         </ul>
                     </li>
@@ -353,7 +354,7 @@ const TranscriptionContextScreen = ({ onSelect }: { onSelect: (mode: Transcripti
                     onClick={() => onSelect('planning')}
                     className="w-full text-left bg-gray-700 hover:bg-gray-600 text-white p-4 rounded-md transition-colors"
                 >
-                    <h3 className="font-bold text-cyan-300">Reunião de Planeamento</h3>
+                    <h3 className="font-bold text-cyan-300">Reunião de Planejamento</h3>
                     <p className="text-sm text-gray-400 mt-1">Validar uma história de usuário existente contra o que foi discutido.</p>
                 </button>
                 <button
@@ -388,7 +389,7 @@ const TranscriptionInputScreen = ({
 
     const titles = {
         requirements: "Analisar Transcrição: Levantamento de Requisitos",
-        planning: "Analisar Transcrição: Reunião de Planeamento",
+        planning: "Analisar Transcrição: Reunião de Planejamento",
         homologation: "Analisar Transcrição: Sessão de Homologação",
     };
 
@@ -461,7 +462,7 @@ const TranscriptionInputScreen = ({
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                         <div>
                             {renderSingleTextarea(
-                                "Transcrição do Planeamento",
+                                "Transcrição do Planejamento",
                                 "Cole a transcrição completa aqui...",
                                 transcript,
                                 (e) => setTranscript(e.target.value),
@@ -506,7 +507,7 @@ const TranscriptionReviewScreen = ({ mode, result, onBack, onCopy }: { mode: Tra
 
     const titles = {
         requirements: "Histórias Geradas da Transcrição",
-        planning: "Análise da Reunião de Planeamento",
+        planning: "Análise da Reunião de Planejamento",
         homologation: "Análise da Sessão de Homologação",
     };
     const [copied, setCopied] = useState(false);
