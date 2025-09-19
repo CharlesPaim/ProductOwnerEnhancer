@@ -66,17 +66,22 @@ const GherkinContent = ({ text }: { text: string }) => {
     let inDocString = false;
 
     const docStringStyle = "block bg-gray-700/50 text-cyan-300 px-2";
+    const tableRowStyle = "block font-mono";
     const normalStyle = "block";
 
     for (let i = 0; i < lines.length; i++) {
         const line = lines[i];
-        const isBoundary = line.trim() === '"""';
+        const trimmedLine = line.trim();
+        const isBoundary = trimmedLine === '"""';
+        const isTableRow = trimmedLine.startsWith('|') && trimmedLine.endsWith('|');
 
         if (isBoundary) {
             elements.push(<span key={i} className={docStringStyle}>{line}</span>);
             inDocString = !inDocString;
         } else if (inDocString) {
             elements.push(<span key={i} className={docStringStyle}>{line || '\u00A0'}</span>);
+        } else if (isTableRow) {
+            elements.push(<span key={i} className={tableRowStyle}>{line}</span>);
         } else {
             elements.push(<span key={i} className={normalStyle}>{line}</span>);
         }
@@ -1013,29 +1018,6 @@ const App: React.FC = () => {
     const [appState, setAppState] = useState<AppState>('home');
     const [navigationHistory, setNavigationHistory] = useState<AppState[]>(['home']);
 
-    const navigateTo = (newState: AppState) => {
-        setAppState(newState);
-        setNavigationHistory(prev => [...prev, newState]);
-    };
-
-    const handleGoBack = () => {
-        if (navigationHistory.length > 1) {
-            const newHistory = [...navigationHistory];
-            newHistory.pop();
-            setNavigationHistory(newHistory);
-            setAppState(newHistory[newHistory.length - 1]);
-        }
-    };
-
-    const handleBreadcrumbNavigate = (index: number) => {
-        if (index < navigationHistory.length - 1) {
-            const newHistory = navigationHistory.slice(0, index + 1);
-            setNavigationHistory(newHistory);
-            setAppState(newHistory[newHistory.length - 1]);
-        }
-    };
-
-
     // Story refinement state
     const [originalStory, setOriginalStory] = useState<ParsedStory | null>(null);
     const [suggestedStory, setSuggestedStory] = useState<string | null>(null);
@@ -1123,6 +1105,52 @@ const App: React.FC = () => {
     const conversationEndRef = useRef<HTMLDivElement>(null);
     
     const currentTurn = conversation[conversation.length - 1];
+
+    const resetBddConversionState = () => {
+        setDocumentToConvert('');
+        setFeatureSuggestions([]);
+        setConvertedFeatureFile('');
+    };
+
+    const navigateTo = (newState: AppState) => {
+        setAppState(newState);
+        setNavigationHistory(prev => [...prev, newState]);
+    };
+
+    const handleGoBack = () => {
+        if (navigationHistory.length > 1) {
+            const bddConversionStates: AppState[] = ['bdd_converting_doc_input', 'bdd_breakdown_review', 'bdd_converting_doc_review'];
+            const currentState = navigationHistory[navigationHistory.length - 1];
+            const previousState = navigationHistory[navigationHistory.length - 2];
+
+            // If leaving the BDD conversion flow, clean up its state.
+            if (bddConversionStates.includes(currentState) && !bddConversionStates.includes(previousState)) {
+                resetBddConversionState();
+            }
+
+            const newHistory = [...navigationHistory];
+            newHistory.pop();
+            setNavigationHistory(newHistory);
+            setAppState(newHistory[newHistory.length - 1]);
+        }
+    };
+
+    const handleBreadcrumbNavigate = (index: number) => {
+        if (index < navigationHistory.length - 1) {
+            const bddConversionStates: AppState[] = ['bdd_converting_doc_input', 'bdd_breakdown_review', 'bdd_converting_doc_review'];
+            const currentState = navigationHistory[navigationHistory.length - 1];
+            const targetState = navigationHistory[index];
+
+            // If navigating out of the BDD conversion flow, clean up its state.
+            if (bddConversionStates.includes(currentState) && !bddConversionStates.includes(targetState)) {
+                resetBddConversionState();
+            }
+
+            const newHistory = navigationHistory.slice(0, index + 1);
+            setNavigationHistory(newHistory);
+            setAppState(newHistory[newHistory.length - 1]);
+        }
+    };
 
     useEffect(() => {
         conversationEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -1657,30 +1685,66 @@ const App: React.FC = () => {
     }, [originalStory, suggestedStory, complexityCache]);
 
     const handleGeneratePrototype = useCallback(async () => {
-        if (!originalStory) return;
-        const storyToPrototype = suggestedStory ?? originalStory.description;
         const modelToUse = localPrototypeModel || prototypeModel;
+        
+        if (planningMode === 'story') {
+            if (!originalStory) return;
+            const storyToPrototype = suggestedStory ?? originalStory.description;
 
-        if (prototypeCache && prototypeCache.description === storyToPrototype && prototypeCache.model === modelToUse) {
-            setSuggestedPrototype(prototypeCache.prototype);
-            setIsPrototypeModalOpen(true);
-            return;
-        }
+            if (prototypeCache && prototypeCache.description === storyToPrototype && prototypeCache.model === modelToUse) {
+                setSuggestedPrototype(prototypeCache.prototype);
+                setIsPrototypeModalOpen(true);
+                return;
+            }
 
-        setIsGeneratingPrototype(true);
-        setSuggestedPrototype(null);
-        setError(null);
-        try {
-            const prototypeCode = await generatePrototype(storyToPrototype, modelToUse);
-            setSuggestedPrototype(prototypeCode);
-            setPrototypeCache({ description: storyToPrototype, model: modelToUse, prototype: prototypeCode });
-            setIsPrototypeModalOpen(true);
-        } catch (err) {
-             setError(err instanceof Error ? err.message : 'Falha ao gerar o protótipo.');
-        } finally {
-            setIsGeneratingPrototype(false);
+            setIsGeneratingPrototype(true);
+            setSuggestedPrototype(null);
+            setError(null);
+            try {
+                const prototypeCode = await generatePrototype(storyToPrototype, modelToUse);
+                setSuggestedPrototype(prototypeCode);
+                setPrototypeCache({ description: storyToPrototype, model: modelToUse, prototype: prototypeCode });
+                setIsPrototypeModalOpen(true);
+            } catch (err) {
+                 setError(err instanceof Error ? err.message : 'Falha ao gerar o protótipo.');
+            } finally {
+                setIsGeneratingPrototype(false);
+            }
+        } else if (planningMode === 'bdd') {
+            const featureFileContent = `Funcionalidade: ${featureDescription}\n\n` + 
+                bddScenarios.map(s => s.gherkin ?? `Cenário: ${s.title}`).join('\n\n');
+
+            if (bddPrototypeCache && bddPrototypeCache.featureContent === featureFileContent && bddPrototypeCache.model === modelToUse) {
+                setSuggestedPrototype(bddPrototypeCache.prototype);
+                setIsPrototypeModalOpen(true);
+                return;
+            }
+
+            setIsGeneratingPrototype(true);
+            setSuggestedPrototype(null);
+            setError(null);
+            try {
+                const prototypeCode = await generatePrototypeFromFeature(featureFileContent, modelToUse);
+                setSuggestedPrototype(prototypeCode);
+                setBddPrototypeCache({ featureContent: featureFileContent, model: modelToUse, prototype: prototypeCode });
+                setIsPrototypeModalOpen(true);
+            } catch (err) {
+                 setError(err instanceof Error ? err.message : 'Falha ao gerar o protótipo.');
+            } finally {
+                setIsGeneratingPrototype(false);
+            }
         }
-    }, [originalStory, suggestedStory, prototypeModel, localPrototypeModel, prototypeCache]);
+    }, [
+        planningMode,
+        originalStory,
+        suggestedStory,
+        prototypeModel,
+        localPrototypeModel,
+        prototypeCache,
+        bddPrototypeCache,
+        featureDescription,
+        bddScenarios,
+    ]);
 
     const handleGenerateBddPrototype = useCallback(async (featureFileContent: string) => {
         const modelToUse = localPrototypeModel || prototypeModel;
@@ -1796,9 +1860,7 @@ const App: React.FC = () => {
         setGeneratedSingleGherkin(null);
         setPoChecklistContent(null);
         setStepDefContent(null);
-        setDocumentToConvert('');
-        setFeatureSuggestions([]);
-        setConvertedFeatureFile('');
+        resetBddConversionState();
         setEditingOutline(null);
         setActivePersonas([]);
         setConversation([]);
