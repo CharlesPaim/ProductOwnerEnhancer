@@ -1,5 +1,7 @@
 
 
+
+
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { Persona, ParsedStory, RedmineIssue, ConversationTurn, ComplexityAnalysisResult, SplitStory, BddFeatureSuggestion, GherkinScenario } from './types';
 import { generateInitialQuestions, suggestNewStoryVersion, generateFollowUpQuestion, generateNewStory, refineSuggestedStory, generateTestScenarios, analyzeStoryComplexity, generateStoriesFromTranscript, generatePrototype, generateBddScenarios, generateBddFollowUpQuestion, generateGherkinFromConversation, generatePoChecklist, generateStepDefinitions, convertDocumentToBdd, analyzeAndBreakdownDocument, analyzePlanningTranscript, analyzeHomologationTranscript, generatePrototypeFromFeature, generateBddFollowUpQuestionForGroup, generateGherkinFromGroupConversation, extractTableColumnsFromQuestion, generateInitialScenarioOutline } from './services/geminiService';
@@ -1106,13 +1108,40 @@ const App: React.FC = () => {
     
     const currentTurn = conversation[conversation.length - 1];
 
+    const resetTranscriptionState = () => {
+        setTranscriptionMode(null);
+        setTranscriptionAnalysisResult(null);
+        setSplitStories([]);
+    };
+
     const resetBddConversionState = () => {
         setDocumentToConvert('');
         setFeatureSuggestions([]);
         setConvertedFeatureFile('');
     };
 
+    const invalidateCaches = () => {
+        setComplexityCache(null);
+        setTestScenariosCache(null);
+        setPrototypeCache(null);
+        setBddPrototypeCache(null);
+        setGherkinCache(null);
+        setPoChecklistCache(null);
+        setStepDefCache(null);
+    };
+
     const navigateTo = (newState: AppState) => {
+        const startOfNonTranscriptionFlows: AppState[] = [
+            'refining', 
+            'generating', 
+            'bdd_input', 
+            'bdd_converting_doc_input'
+        ];
+    
+        if (startOfNonTranscriptionFlows.includes(newState)) {
+            resetTranscriptionState();
+        }
+    
         setAppState(newState);
         setNavigationHistory(prev => [...prev, newState]);
     };
@@ -1844,15 +1873,23 @@ const App: React.FC = () => {
         navigateTo('configuring');
     }, []);
 
+    const handleSaveModelStory = (model: string) => {
+        setModelStory(model);
+        invalidateCaches();
+    };
+
+    const handleSavePrototypeModel = (model: string) => {
+        setPrototypeModel(model);
+        invalidateCaches();
+    };
+
     const resetApp = () => {
         setAppState('home');
         setNavigationHistory(['home']);
         setOriginalStory(null);
         setSuggestedStory(null);
-        setSplitStories([]);
         setComplexityAnalysis(null);
-        setTranscriptionMode(null);
-        setTranscriptionAnalysisResult(null);
+        resetTranscriptionState();
         setPlanningMode('story');
         setFeatureDescription('');
         setBddScenarios([]);
@@ -2608,8 +2645,8 @@ const App: React.FC = () => {
             </main>
 
             {isFeaturesModalOpen && <FeaturesModal onClose={() => setIsFeaturesModalOpen(false)} />}
-            {isModelStoryModalOpen && <ModelStoryModal initialModel={modelStory} onSave={setModelStory} onClose={() => setIsModelStoryModalOpen(false)} />}
-            {isPrototypeModelModalOpen && <PrototypeModelModal initialModel={prototypeModel} onSave={setPrototypeModel} onClose={() => setIsPrototypeModelModalOpen(false)} />}
+            {isModelStoryModalOpen && <ModelStoryModal initialModel={modelStory} onSave={handleSaveModelStory} onClose={() => setIsModelStoryModalOpen(false)} />}
+            {isPrototypeModelModalOpen && <PrototypeModelModal initialModel={prototypeModel} onSave={handleSavePrototypeModel} onClose={() => setIsPrototypeModelModalOpen(false)} />}
             {confirmationAction && <ConfirmationModal action={confirmationAction} onClose={() => setConfirmationAction(null)} />}
             
             {originalStory && isOriginalStoryModalOpen && (
