@@ -1,9 +1,11 @@
 
+
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { Persona, ParsedStory, RedmineIssue, ConversationTurn, ComplexityAnalysisResult, SplitStory, BddFeatureSuggestion, GherkinScenario } from './types';
 import { generateInitialQuestions, suggestNewStoryVersion, generateFollowUpQuestion, generateNewStory, refineSuggestedStory, generateTestScenarios, analyzeStoryComplexity, generateStoriesFromTranscript, generatePrototype, generateBddScenarios, generateBddFollowUpQuestion, generateGherkinFromConversation, generatePoChecklist, generateStepDefinitions, convertDocumentToBdd, analyzeAndBreakdownDocument, analyzePlanningTranscript, analyzeHomologationTranscript, generatePrototypeFromFeature, generateBddFollowUpQuestionForGroup, generateGherkinFromGroupConversation, extractTableColumnsFromQuestion, generateInitialScenarioOutline } from './services/geminiService';
-import { personaDetails, UserIcon, BookOpenIcon, XIcon, MenuIcon, SparklesIcon, HomeIcon, ClipboardIcon, ClipboardCheckIcon, ClipboardListIcon, InformationCircleIcon, ScaleIcon, MicrophoneIcon, TemplateIcon, ViewBoardsIcon, DocumentTextIcon, CheckCircleIcon, PencilIcon, TrashIcon, CodeIcon, SwitchHorizontalIcon, DownloadIcon, TableIcon, PlusIcon } from './components/icons';
+import { personaDetails, UserIcon, BookOpenIcon, XIcon, MenuIcon, SparklesIcon, HomeIcon, ClipboardIcon, ClipboardCheckIcon, ClipboardListIcon, InformationCircleIcon, ScaleIcon, MicrophoneIcon, TemplateIcon, ViewBoardsIcon, DocumentTextIcon, CheckCircleIcon, PencilIcon, TrashIcon, CodeIcon, SwitchHorizontalIcon, DownloadIcon, TableIcon, PlusIcon, ArrowLeftIcon } from './components/icons';
 import DataTableModal from './components/DataTableModal';
+import Breadcrumbs from './components/Breadcrumbs';
 
 
 type BddScenario = {
@@ -21,6 +23,42 @@ type ConfirmationAction = {
 } | null;
 
 type TranscriptionMode = 'requirements' | 'planning' | 'homologation';
+
+type AppState = 'home' | 'refining' | 'generating' | 'transcribing_context' | 'transcribing_input' | 'transcribing_review' | 'bdd_input' | 'bdd_scenarios' | 'bdd_review' | 'bdd_converting_doc_input' | 'bdd_breakdown_review' | 'bdd_feature_selection' | 'bdd_converting_doc_review' | 'loading_generation' | 'loading_transcription' | 'loading_bdd_scenarios' | 'loading_bdd_breakdown' | 'loading_bdd_conversion' | 'loading_outline_generation' | 'scenario_outline_editor' | 'reviewing' | 'configuring' | 'loading' | 'planning' | 'error' | 'analyzing_complexity' | 'story_selection';
+
+const translateStateToFriendlyName = (state: AppState): string => {
+    const nameMap: Record<AppState, string> = {
+        'home': 'Início',
+        'refining': 'Refinar História',
+        'generating': 'Gerar História',
+        'transcribing_context': 'Analisar Transcrição',
+        'transcribing_input': 'Entrada da Transcrição',
+        'transcribing_review': 'Revisão da Análise',
+        'bdd_input': 'Criar Feature BDD',
+        'bdd_scenarios': 'Lista de Cenários',
+        'bdd_review': 'Revisão BDD',
+        'bdd_converting_doc_input': 'Converter Documento',
+        'bdd_breakdown_review': 'Análise do Documento',
+        'bdd_feature_selection': 'Seleção de Feature',
+        'bdd_converting_doc_review': 'Revisão da Conversão',
+        'reviewing': 'Revisar História Gerada',
+        'configuring': 'Configurar Sessão',
+        'planning': 'Sessão de Planejamento',
+        'story_selection': 'Seleção de História',
+        'scenario_outline_editor': 'Editor de Cenário',
+        'loading_generation': 'Gerando...',
+        'loading_transcription': 'Analisando...',
+        'loading_bdd_scenarios': 'Gerando Cenários...',
+        'loading_bdd_breakdown': 'Analisando Documento...',
+        'loading_bdd_conversion': 'Convertendo...',
+        'loading_outline_generation': 'Gerando Template...',
+        'loading': 'Carregando...',
+        'analyzing_complexity': 'Analisando...',
+        'error': 'Erro'
+    };
+    return nameMap[state] || state;
+};
+
 
 const GherkinContent = ({ text }: { text: string }) => {
     const lines = text.split('\n');
@@ -57,8 +95,20 @@ const personaToKey = (p: Persona): string => {
     }
 };
 
-const Header = ({ onRestart, showRestart, text }: { onRestart: () => void; showRestart: boolean; text: string; }) => (
+const Header = ({ onHomeClick, showHomeButton, homeButtonText, onBack, showBack }: { onHomeClick: () => void; showHomeButton: boolean; homeButtonText: string; onBack: () => void; showBack: boolean; }) => (
     <header className="relative bg-gray-900/80 backdrop-blur-sm p-4 border-b border-gray-700 sticky top-0 z-20 flex items-center justify-center h-[85px]">
+        {showBack && (
+            <div className="absolute left-4 top-1/2 -translate-y-1/2">
+                <button 
+                    onClick={onBack}
+                    className="flex items-center gap-2 text-sm text-gray-300 hover:text-purple-300 transition-colors py-1 px-3 rounded-md hover:bg-gray-700/50"
+                    title="Voltar"
+                >
+                    <ArrowLeftIcon className="w-5 h-5" />
+                    <span>Voltar</span>
+                </button>
+            </div>
+        )}
         <div className="text-center">
             <h1 className="text-2xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-purple-400 to-cyan-400">
                 Aprimorador de Histórias de Usuário
@@ -66,14 +116,14 @@ const Header = ({ onRestart, showRestart, text }: { onRestart: () => void; showR
             <p className="text-center text-gray-400 text-sm mt-1">Gere e refine histórias de usuário com o poder da IA</p>
         </div>
         <div className="absolute right-4 top-1/2 -translate-y-1/2 flex items-center gap-4">
-            {showRestart && (
+            {showHomeButton && (
                 <button 
-                    onClick={onRestart}
+                    onClick={onHomeClick}
                     className="flex items-center gap-2 text-sm text-gray-300 hover:text-purple-300 transition-colors py-1 px-3 rounded-md hover:bg-gray-700/50"
-                    title={text}
+                    title={homeButtonText}
                 >
                     <HomeIcon className="w-5 h-5" />
-                    <span>{text}</span>
+                    <span>{homeButtonText}</span>
                 </button>
             )}
         </div>
@@ -960,8 +1010,31 @@ const getFileExtension = (technology: string): string => {
 };
 
 const App: React.FC = () => {
-    type AppState = 'home' | 'refining' | 'generating' | 'transcribing_context' | 'transcribing_input' | 'transcribing_review' | 'bdd_input' | 'bdd_scenarios' | 'bdd_review' | 'bdd_converting_doc_input' | 'bdd_breakdown_review' | 'bdd_feature_selection' | 'bdd_converting_doc_review' | 'loading_generation' | 'loading_transcription' | 'loading_bdd_scenarios' | 'loading_bdd_breakdown' | 'loading_bdd_conversion' | 'loading_outline_generation' | 'scenario_outline_editor' | 'reviewing' | 'configuring' | 'loading' | 'planning' | 'error' | 'analyzing_complexity' | 'story_selection';
     const [appState, setAppState] = useState<AppState>('home');
+    const [navigationHistory, setNavigationHistory] = useState<AppState[]>(['home']);
+
+    const navigateTo = (newState: AppState) => {
+        setAppState(newState);
+        setNavigationHistory(prev => [...prev, newState]);
+    };
+
+    const handleGoBack = () => {
+        if (navigationHistory.length > 1) {
+            const newHistory = [...navigationHistory];
+            newHistory.pop();
+            setNavigationHistory(newHistory);
+            setAppState(newHistory[newHistory.length - 1]);
+        }
+    };
+
+    const handleBreadcrumbNavigate = (index: number) => {
+        if (index < navigationHistory.length - 1) {
+            const newHistory = navigationHistory.slice(0, index + 1);
+            setNavigationHistory(newHistory);
+            setAppState(newHistory[newHistory.length - 1]);
+        }
+    };
+
 
     // Story refinement state
     const [originalStory, setOriginalStory] = useState<ParsedStory | null>(null);
@@ -1091,73 +1164,73 @@ const App: React.FC = () => {
     const handleStorySubmit = useCallback((story: ParsedStory) => {
         setPlanningMode('story');
         setOriginalStory(story);
-        setAppState('configuring');
+        navigateTo('configuring');
     }, []);
 
     const handleGenerateStory = useCallback(async (requirements: string) => {
-        setAppState('loading_generation');
+        navigateTo('loading_generation');
         setError(null);
         try {
             const generated = await generateNewStory(requirements, modelStory);
             setOriginalStory(generated);
-            setAppState('reviewing');
+            navigateTo('reviewing');
         } catch (err) {
             setError(err instanceof Error ? err.message : 'Falha ao gerar a história.');
-            setAppState('error');
+            navigateTo('error');
         }
     }, [modelStory]);
 
      const handleRequirementsTranscriptSubmit = useCallback(async (transcript: string) => {
-        setAppState('loading_transcription');
+        navigateTo('loading_transcription');
         setError(null);
         try {
             const generatedStories = await generateStoriesFromTranscript(transcript, modelStory);
             if (generatedStories.length === 0) {
                 setError('A IA não conseguiu gerar histórias a partir da transcrição fornecida. Tente com um texto mais detalhado.');
-                setAppState('transcribing_input');
+                navigateTo('transcribing_input');
                 return;
             }
             setSplitStories(generatedStories);
-            setAppState('story_selection');
+            navigateTo('story_selection');
         } catch (err) {
             setError(err instanceof Error ? err.message : 'Falha ao analisar a transcrição.');
-            setAppState('error');
+            navigateTo('error');
         }
     }, [modelStory]);
 
     const handlePlanningTranscriptSubmit = useCallback(async (transcript: string, storyToValidate: string) => {
-        setAppState('loading_transcription');
+        navigateTo('loading_transcription');
         setError(null);
         try {
             const result = await analyzePlanningTranscript(transcript, storyToValidate);
             setTranscriptionAnalysisResult(result);
-            setAppState('transcribing_review');
+            navigateTo('transcribing_review');
         } catch (err) {
             setError(err instanceof Error ? err.message : 'Falha ao analisar a transcrição.');
-            setAppState('transcribing_input');
+            navigateTo('transcribing_input');
         }
     }, []);
 
     const handleHomologationTranscriptSubmit = useCallback(async (transcript: string) => {
-        setAppState('loading_transcription');
+        navigateTo('loading_transcription');
         setError(null);
         try {
             const result = await analyzeHomologationTranscript(transcript);
             setTranscriptionAnalysisResult(result);
-            setAppState('transcribing_review');
+            navigateTo('transcribing_review');
         } catch (err) {
             setError(err instanceof Error ? err.message : 'Falha ao analisar a transcrição.');
-            setAppState('transcribing_input');
+            navigateTo('transcribing_input');
         }
     }, []);
 
     const handleTranscriptionContextSelect = (mode: TranscriptionMode) => {
         setTranscriptionMode(mode);
-        setAppState('transcribing_input');
+        navigateTo('transcribing_input');
     };
 
     const handleFeatureSubmit = useCallback(async (description: string) => {
-        setAppState('loading_bdd_scenarios');
+        navigateTo('loading_bdd_scenarios');
         setFeatureDescription(description);
         setError(null);
         try {
@@ -1170,37 +1243,37 @@ const App: React.FC = () => {
                 completed: false,
                 type: (title.toLowerCase().includes('scenario outline') ? 'outline' : 'scenario') as 'scenario' | 'outline'
             })));
-            setAppState('bdd_scenarios');
+            navigateTo('bdd_scenarios');
         } catch (err) {
              setError(err instanceof Error ? err.message : 'Falha ao gerar cenários BDD.');
-             setAppState('bdd_input');
+             navigateTo('bdd_input');
         }
     }, []);
 
     const handleAnalyzeDocument = useCallback(async (document: string) => {
-        setAppState('loading_bdd_breakdown');
+        navigateTo('loading_bdd_breakdown');
         setDocumentToConvert(document);
         setError(null);
         try {
             const suggestions = await analyzeAndBreakdownDocument(document);
             setFeatureSuggestions(suggestions);
-            setAppState('bdd_breakdown_review');
+            navigateTo('bdd_breakdown_review');
         } catch (err) {
             setError(err instanceof Error ? err.message : 'Falha ao analisar o documento.');
-            setAppState('bdd_converting_doc_input');
+            navigateTo('bdd_converting_doc_input');
         }
     }, []);
 
     const handleConvertSelectedFeature = useCallback(async (featureTitle: string) => {
-        setAppState('loading_bdd_conversion');
+        navigateTo('loading_bdd_conversion');
         setError(null);
         try {
             const featureFile = await convertDocumentToBdd(documentToConvert, featureTitle);
             setConvertedFeatureFile(featureFile);
-            setAppState('bdd_converting_doc_review');
+            navigateTo('bdd_converting_doc_review');
         } catch (err) {
             setError(err instanceof Error ? err.message : 'Falha ao converter a feature selecionada.');
-            setAppState('bdd_feature_selection');
+            navigateTo('bdd_feature_selection');
         }
     }, [documentToConvert]);
 
@@ -1227,7 +1300,7 @@ const App: React.FC = () => {
         }));
 
         setBddScenarios(initialBddScenarios);
-        setAppState('bdd_scenarios');
+        navigateTo('bdd_scenarios');
     }, [convertedFeatureFile]);
 
     const handleDetailScenario = useCallback((index: number) => {
@@ -1238,12 +1311,12 @@ const App: React.FC = () => {
         setOriginalStory({ title: scenario.title, description: `Este é um cenário para a funcionalidade: "${featureDescription}"` });
         setPlanningMode('bdd');
         setPlanningScope('single');
-        setAppState('configuring');
+        navigateTo('configuring');
     }, [bddScenarios, featureDescription]);
 
     const handleStartOutlineEditing = useCallback(async (index: number) => {
         setCurrentScenarioIndex(index);
-        setAppState('loading_outline_generation');
+        navigateTo('loading_outline_generation');
         setError(null);
         try {
             const scenario = bddScenarios[index];
@@ -1253,10 +1326,10 @@ const App: React.FC = () => {
                 headers: result.headers,
                 rows: [Array(result.headers.length).fill('')] // Start with one empty row
             });
-            setAppState('scenario_outline_editor');
+            navigateTo('scenario_outline_editor');
         } catch (err) {
             setError(err instanceof Error ? err.message : 'Falha ao gerar o template do Scenario Outline.');
-            setAppState('bdd_scenarios');
+            navigateTo('bdd_scenarios');
         }
     }, [bddScenarios, featureDescription]);
 
@@ -1287,7 +1360,7 @@ const App: React.FC = () => {
         // Reset state
         setEditingOutline(null);
         setCurrentScenarioIndex(null);
-        setAppState('bdd_scenarios');
+        navigateTo('bdd_scenarios');
 
     }, [editingOutline, currentScenarioIndex, bddScenarios]);
     
@@ -1311,12 +1384,12 @@ const App: React.FC = () => {
         setOriginalStory({ title: `Detalhamento de Múltiplos Cenários`, description: `Funcionalidade: ${featureDescription}\n\nCenários:\n- ${titles.join('\n- ')}` });
         setPlanningMode('bdd');
         setPlanningScope('group');
-        setAppState('configuring');
+        navigateTo('configuring');
     }, [bddScenarios, featureDescription, selectedScenarioIds]);
 
     const handleReviewConfirm = useCallback(() => {
         if (!originalStory) return;
-        setAppState('configuring');
+        navigateTo('configuring');
     }, [originalStory]);
 
     const handleStartPlanning = useCallback(async (selectedPersonas: Persona[]) => {
@@ -1332,7 +1405,7 @@ const App: React.FC = () => {
         
         if (!contextStory || selectedPersonas.length === 0) return;
         
-        setAppState('loading');
+        navigateTo('loading');
         setActivePersonas(selectedPersonas);
         setError(null);
         try {
@@ -1344,20 +1417,20 @@ const App: React.FC = () => {
                 question: initialQs[personaToKey(selectedPersonas[0])],
             };
             setConversation([firstQuestion]);
-            setAppState('planning');
+            navigateTo('planning');
         } catch (err) {
             setError(err instanceof Error ? err.message : 'Ocorreu um erro desconhecido.');
-            setAppState('error');
+            navigateTo('error');
         }
     }, [originalStory, planningMode, currentScenarioIndex, bddScenarios, featureDescription, planningScope, currentGroupIndexes]);
 
     const handleCancelConfiguration = useCallback(() => {
         if (planningMode === 'bdd') {
-            setAppState('bdd_scenarios');
+            navigateTo('bdd_scenarios');
         } else if (splitStories.length > 0) {
-            setAppState('story_selection');
+            navigateTo('story_selection');
         } else {
-            setAppState('home');
+            navigateTo('home');
         }
         setOriginalStory(null);
         setSelectedScenarioIds([]);
@@ -1534,7 +1607,7 @@ const App: React.FC = () => {
         setGeneratedSingleGherkin(null);
         setGeneratedGroupGherkin(null);
         setSelectedScenarioIds([]);
-        setAppState('bdd_scenarios');
+        navigateTo('bdd_scenarios');
     }, [currentScenarioIndex, generatedSingleGherkin, bddScenarios, planningScope, generatedGroupGherkin]);
     
     const handleGenerateScenarios = useCallback(async () => {
@@ -1680,7 +1753,7 @@ const App: React.FC = () => {
     const handleAcceptSplit = useCallback(() => {
         if (complexityAnalysis?.suggestedStories) {
             setSplitStories(complexityAnalysis.suggestedStories);
-            setAppState('story_selection');
+            navigateTo('story_selection');
         }
         setComplexityAnalysis(null);
     }, [complexityAnalysis]);
@@ -1704,11 +1777,12 @@ const App: React.FC = () => {
         // Set new story and move to config
         setOriginalStory(story);
         setPlanningMode('story');
-        setAppState('configuring');
+        navigateTo('configuring');
     }, []);
 
     const resetApp = () => {
         setAppState('home');
+        setNavigationHistory(['home']);
         setOriginalStory(null);
         setSuggestedStory(null);
         setSplitStories([]);
@@ -1795,7 +1869,7 @@ const App: React.FC = () => {
            setCurrentAnswer('');
            setTestScenarios(null);
            setOriginalStory(null); 
-           setAppState('story_selection');
+           navigateTo('story_selection');
         };
         setConfirmationAction({
             title: "Voltar para Seleção",
@@ -1890,7 +1964,7 @@ const App: React.FC = () => {
         switch (appState) {
             case 'home':
                 return <HomeScreen 
-                            onChoice={setAppState} 
+                            onChoice={navigateTo} 
                             onShowFeatures={() => setIsFeaturesModalOpen(true)}
                             onShowModelModal={() => setIsModelStoryModalOpen(true)}
                             onShowPrototypeModal={() => setIsPrototypeModelModalOpen(true)}
@@ -1913,7 +1987,7 @@ const App: React.FC = () => {
                     <TranscriptionReviewScreen 
                         mode={transcriptionMode} 
                         result={transcriptionAnalysisResult} 
-                        onBack={() => setAppState('transcribing_context')} 
+                        onBack={() => navigateTo('transcribing_context')} 
                         onCopy={handleCopy} 
                     />
                 );
@@ -2156,7 +2230,7 @@ const App: React.FC = () => {
                             </div>
 
                              <div className="flex justify-end gap-3 mt-6 pt-4 border-t border-gray-700">
-                                <button onClick={() => setAppState('bdd_scenarios')} className="bg-gray-600 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded transition">Cancelar</button>
+                                <button onClick={() => navigateTo('bdd_scenarios')} className="bg-gray-600 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded transition">Cancelar</button>
                                 <button onClick={handleSaveOutline} className="bg-purple-600 hover:bg-purple-700 text-white font-bold py-2 px-4 rounded transition">Salvar e Voltar</button>
                             </div>
                         </div>
@@ -2198,8 +2272,13 @@ const App: React.FC = () => {
 
     return (
         <div className="bg-gray-900 text-gray-200 min-h-screen font-sans">
-            <Header onRestart={headerAction} showRestart={appState !== 'home'} text={headerText} />
+            <Header onHomeClick={headerAction} showHomeButton={appState !== 'home'} homeButtonText={headerText} onBack={handleGoBack} showBack={navigationHistory.length > 1} />
             <main className="container mx-auto p-4">
+                <Breadcrumbs 
+                    history={navigationHistory}
+                    onNavigate={handleBreadcrumbNavigate}
+                    translate={translateStateToFriendlyName}
+                />
                 {renderContent()}
             </main>
 
