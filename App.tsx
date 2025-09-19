@@ -1130,7 +1130,7 @@ const App: React.FC = () => {
 
     useEffect(() => {
         // Check if it's a new turn that hasn't been processed for columns yet
-        if (appState === 'planning' && currentTurn && !currentTurn.answer && currentTurn.id !== currentTurnIdForColumnCheck) {
+        if (appState === 'planning' && planningMode === 'bdd' && currentTurn && !currentTurn.answer && currentTurn.id !== currentTurnIdForColumnCheck) {
             const inferColumns = async () => {
                 setCurrentTurnIdForColumnCheck(currentTurn.id); // Mark as processed
                 setIsExtractingColumns(true);
@@ -1148,7 +1148,7 @@ const App: React.FC = () => {
             };
             inferColumns();
         }
-    }, [appState, currentTurn, currentTurnIdForColumnCheck]);
+    }, [appState, planningMode, currentTurn, currentTurnIdForColumnCheck]);
     
     const handleCopy = (text: string, turnId?: number) => {
         navigator.clipboard.writeText(text);
@@ -1273,7 +1273,7 @@ const App: React.FC = () => {
             navigateTo('bdd_converting_doc_review');
         } catch (err) {
             setError(err instanceof Error ? err.message : 'Falha ao converter a feature selecionada.');
-            navigateTo('bdd_feature_selection');
+            navigateTo('bdd_breakdown_review');
         }
     }, [documentToConvert]);
 
@@ -2014,6 +2014,72 @@ const App: React.FC = () => {
                         </div>
                     </div>
                 );
+            case 'bdd_converting_doc_input':
+                return (
+                    <div className="flex flex-col items-center justify-center min-h-screen p-4 -mt-20">
+                        <div className="w-full max-w-3xl bg-gray-800 rounded-lg shadow-xl p-6">
+                            <h2 className="text-xl font-semibold mb-2 text-gray-200">Converter Documento para BDD</h2>
+                            <p className="text-gray-400 mb-4 text-sm">Cole um documento de requisitos tradicional. A IA irá analisá-lo e sugerir uma quebra em features menores e coesas.</p>
+                            <textarea
+                                className="w-full h-80 p-3 bg-gray-900 border border-gray-700 rounded-md focus:ring-2 focus:ring-purple-500 transition text-gray-300 resize-y"
+                                value={documentToConvert}
+                                onChange={(e) => setDocumentToConvert(e.target.value)}
+                                placeholder="Cole o documento de requisitos aqui..."
+                            />
+                            {error && <p className="text-red-400 mt-2 text-sm">{error}</p>}
+                            <button
+                                onClick={() => handleAnalyzeDocument(documentToConvert)}
+                                disabled={!documentToConvert.trim()}
+                                className="mt-6 w-full bg-purple-600 hover:bg-purple-700 disabled:bg-gray-500 text-white font-bold py-2 px-4 rounded-md transition-transform transform hover:scale-105"
+                            >
+                                Analisar e Quebrar Documento
+                            </button>
+                        </div>
+                    </div>
+                );
+            case 'bdd_breakdown_review':
+                return (
+                    <div className="flex flex-col items-center justify-center min-h-screen p-4 -mt-20">
+                        <div className="w-full max-w-3xl bg-gray-800 rounded-lg shadow-xl p-6">
+                            <h2 className="text-xl font-semibold mb-2 text-gray-200">Análise do Documento</h2>
+                            <p className="text-gray-400 mb-6 text-sm">A IA analisou o documento e sugeriu a seguinte quebra em features. Escolha uma para converter em um arquivo BDD (.feature).</p>
+                            <div className="space-y-4 max-h-[60vh] overflow-y-auto pr-2">
+                                {featureSuggestions.map((feature, index) => (
+                                    <button 
+                                        key={index} 
+                                        onClick={() => handleConvertSelectedFeature(feature.title)}
+                                        className="w-full bg-gray-700 hover:bg-gray-600 text-left p-4 rounded-md transition-transform transform hover:scale-105"
+                                    >
+                                        <h3 className="font-bold text-purple-300">{feature.title}</h3>
+                                        <p className="text-sm text-gray-400 mt-2">{feature.summary}</p>
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+                    </div>
+                );
+            case 'bdd_converting_doc_review':
+                return (
+                    <div className="flex flex-col items-center justify-center min-h-screen p-4 -mt-20">
+                        <div className="w-full max-w-4xl bg-gray-800 rounded-lg shadow-xl p-6">
+                            <div className="flex justify-between items-center mb-4">
+                                <h2 className="text-xl font-semibold text-purple-300">Arquivo .feature Gerado</h2>
+                                <button onClick={() => handleCopy(convertedFeatureFile)} title="Copiar Feature" className="text-gray-400 hover:text-white transition">
+                                    {copied ? <ClipboardCheckIcon className="w-5 h-5 text-green-400" /> : <ClipboardIcon className="w-5 h-5" />}
+                                </button>
+                            </div>
+                            <div className="max-h-[60vh] overflow-y-auto pr-2 bg-gray-900/50 p-4 rounded-md">
+                                <pre className="text-sm text-gray-300 whitespace-pre-wrap font-mono">
+                                    <GherkinContent text={convertedFeatureFile} />
+                                </pre>
+                            </div>
+                            <div className="flex justify-end gap-3 mt-6">
+                                <button onClick={() => navigateTo('bdd_breakdown_review')} className="bg-gray-600 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded">Voltar</button>
+                                <button onClick={handleRefineConvertedFeature} className="bg-purple-600 hover:bg-purple-700 text-white font-bold py-2 px-4 rounded">Aperfeiçoar Cenários</button>
+                            </div>
+                        </div>
+                    </div>
+                );
              case 'bdd_scenarios':
                 const BddScenarioList = () => {
                     const [editingIndex, setEditingIndex] = useState<number | null>(null);
@@ -2059,15 +2125,32 @@ const App: React.FC = () => {
                                         const detailHandler = scenario.type === 'outline'
                                             ? () => handleStartOutlineEditing(index)
                                             : () => handleDetailScenario(index);
+
+                                        const isDisabled = scenario.completed || scenario.type === 'outline';
+                                        let tooltipText = '';
+                                        if (scenario.completed) {
+                                            tooltipText = 'Cenários completos não podem ser selecionados para planejamento em grupo.';
+                                        } else if (scenario.type === 'outline') {
+                                            tooltipText = 'Scenario Outlines devem ser detalhados individualmente.';
+                                        }
+
                                         return (
                                         <div key={scenario.id} className={`flex items-center p-3 rounded-md transition-colors ${scenario.completed ? 'bg-green-900/40' : 'bg-gray-700/50'}`}>
-                                            <input
-                                                type="checkbox"
-                                                checked={selectedScenarioIds.includes(scenario.id)}
-                                                onChange={() => toggleScenarioSelection(scenario.id)}
-                                                className="h-4 w-4 rounded bg-gray-800 border-gray-600 text-purple-600 focus:ring-purple-500 mr-4"
-                                                disabled={scenario.completed || scenario.type === 'outline'}
-                                            />
+                                            <div className="relative group mr-4">
+                                                <input
+                                                    type="checkbox"
+                                                    checked={selectedScenarioIds.includes(scenario.id)}
+                                                    onChange={() => toggleScenarioSelection(scenario.id)}
+                                                    className="h-4 w-4 rounded bg-gray-800 border-gray-600 text-purple-600 focus:ring-purple-500 disabled:cursor-not-allowed disabled:opacity-50"
+                                                    disabled={isDisabled}
+                                                />
+                                                {isDisabled && (
+                                                    <div role="tooltip" className="absolute left-1/2 -translate-x-1/2 bottom-full mb-2 w-max max-w-xs bg-gray-900 text-white text-xs rounded py-1 px-2 opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none z-10 border border-gray-600 shadow-lg">
+                                                        {tooltipText}
+                                                        <div className="absolute top-full left-1/2 -translate-x-1/2 w-0 h-0 border-x-4 border-x-transparent border-t-4 border-t-gray-900"></div>
+                                                    </div>
+                                                )}
+                                            </div>
                                             {editingIndex === index ? (
                                                 <input
                                                     type="text"
@@ -2253,13 +2336,193 @@ const App: React.FC = () => {
                     </div>
                 );
             case 'planning':
+                if (!currentTurn) {
+                    return <Loader text="Carregando sessão..." />;
+                }
                 return (
                      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                        <div className="lg:col-span-2 bg-gray-800/50 p-6 rounded-lg">
-                           {/* Conversation History */}
+                        <div className="lg:col-span-2 space-y-6">
+                            {/* Conversation History */}
+                            <div className="bg-gray-800/50 p-4 sm:p-6 rounded-lg space-y-6">
+                                {conversation.map((turn, index) => (
+                                    <div key={turn.id}>
+                                        {/* Persona Question */}
+                                        <div className="flex items-start gap-4">
+                                            <PersonaAvatar persona={turn.persona} />
+                                            <div className="flex-grow bg-gray-900/70 p-4 rounded-lg rounded-tl-none relative">
+                                                <div className="flex justify-between items-center">
+                                                    <p className="font-bold text-cyan-300">{turn.persona}</p>
+                                                    <button onClick={() => handleCopy(turn.question, turn.id)} className="text-gray-400 hover:text-white transition-colors">
+                                                        {copiedTurnId === turn.id ? <ClipboardCheckIcon className="w-4 h-4 text-green-400" /> : <ClipboardIcon className="w-4 h-4" />}
+                                                    </button>
+                                                </div>
+                                                <p className="mt-2 text-gray-300 whitespace-pre-wrap">{turn.question}</p>
+                                            </div>
+                                        </div>
+                                        
+                                        {/* User Answer */}
+                                        {turn.answer && (
+                                            <div className="flex items-start gap-4 mt-4 justify-end">
+                                                 <div className="flex-grow bg-purple-900/50 p-4 rounded-lg rounded-br-none max-w-[85%]">
+                                                    <p className="font-bold text-purple-300">Sua Resposta</p>
+                                                    <p className="mt-2 text-gray-300 whitespace-pre-wrap">{turn.answer}</p>
+                                                </div>
+                                                <div className="flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center border-2 border-purple-500 bg-gray-800">
+                                                    <UserIcon className="w-5 h-5 text-gray-300" />
+                                                </div>
+                                            </div>
+                                        )}
+
+                                        {/* Divider */}
+                                        {index < conversation.length - 1 && <hr className="border-gray-700 my-6"/>}
+                                    </div>
+                                ))}
+                                <div ref={conversationEndRef}></div>
+                            </div>
+
+                            {/* Answer Input Area */}
+                            {!currentTurn.answer && (
+                                <div className="bg-gray-800/50 p-4 sm:p-6 rounded-lg" id="answer-section">
+                                    <h3 className="text-lg font-semibold text-purple-300 mb-3">Sua Resposta</h3>
+                                    <textarea
+                                        value={currentAnswer}
+                                        onChange={(e) => setCurrentAnswer(e.target.value)}
+                                        rows={5}
+                                        className="w-full p-3 bg-gray-900 border border-gray-700 rounded-md focus:ring-2 focus:ring-purple-500 transition text-gray-300 resize-y"
+                                        placeholder={`Responda como se estivesse falando com o(a) ${currentTurn.persona}...`}
+                                        disabled={isAnswering}
+                                    />
+                                    <div className="flex justify-between items-center mt-4">
+                                        <div>
+                                            {planningMode === 'bdd' && dataTableColumns.length > 0 && !isExtractingColumns && (
+                                                <button
+                                                    onClick={() => setIsDataTableModalOpen(true)}
+                                                    className="flex items-center gap-2 bg-teal-600 hover:bg-teal-700 text-white font-bold py-2 px-4 rounded transition text-sm"
+                                                    disabled={isAnswering}
+                                                >
+                                                    <TableIcon className="w-5 h-5" />
+                                                    Inserir Tabela de Dados
+                                                </button>
+                                            )}
+                                            {planningMode === 'bdd' && isExtractingColumns && <p className="text-sm text-gray-400 animate-pulse">Analisando por dados tabulares...</p>}
+                                        </div>
+                                        <div className="flex gap-4">
+                                            <button onClick={handleSkip} disabled={isAnswering} className="bg-gray-600 hover:bg-gray-700 text-white font-bold py-2 px-6 rounded transition disabled:opacity-50">Pular</button>
+                                            <button onClick={handleAnswerSubmit} disabled={!currentAnswer.trim() || isAnswering} className="bg-purple-600 hover:bg-purple-700 text-white font-bold py-2 px-6 rounded transition disabled:bg-gray-500">
+                                                {isAnswering ? 'Aguarde...' : 'Enviar Resposta'}
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
                         </div>
-                        <div className="bg-gray-800/50 p-6 rounded-lg self-start sticky top-28">
-                          {/* Sidebar */}
+                        
+                        {/* Sidebar */}
+                        <div className="bg-gray-800/50 p-6 rounded-lg self-start sticky top-28 space-y-4">
+                            <h3 className="text-lg font-semibold text-cyan-300 mb-2">Ferramentas</h3>
+                            
+                            {planningMode === 'story' && (
+                                <>
+                                    <button onClick={handleGetSuggestion} disabled={isSuggesting || conversation.length <= 1} className="w-full flex items-center justify-center gap-2 bg-gray-700 hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold py-2 px-4 rounded transition">
+                                        <SparklesIcon className="w-5 h-5" />
+                                        {isSuggesting ? 'Sugerindo...' : 'Sugerir Nova Versão'}
+                                    </button>
+                                    <button onClick={handleGenerateScenarios} disabled={isGeneratingScenarios} className="w-full flex items-center justify-center gap-2 bg-gray-700 hover:bg-gray-600 disabled:opacity-50 text-white font-bold py-2 px-4 rounded transition">
+                                        <ClipboardListIcon className="w-5 h-5" />
+                                        {isGeneratingScenarios ? 'Gerando...' : 'Gerar Cenários de Teste'}
+                                    </button>
+                                    <button onClick={handleAnalyzeComplexity} disabled={isAnalyzingComplexity} className="w-full flex items-center justify-center gap-2 bg-gray-700 hover:bg-gray-600 disabled:opacity-50 text-white font-bold py-2 px-4 rounded transition">
+                                        <ScaleIcon className="w-5 h-5" />
+                                        {isAnalyzingComplexity ? 'Analisando...' : 'Analisar Complexidade'}
+                                    </button>
+                                </>
+                            )}
+
+                            {planningMode === 'bdd' && (
+                                <button onClick={handleGenerateGherkin} disabled={isGeneratingGherkin || conversation.length <= 1} className="w-full flex items-center justify-center gap-2 bg-gray-700 hover:bg-gray-600 disabled:opacity-50 text-white font-bold py-2 px-4 rounded transition">
+                                    <DocumentTextIcon className="w-5 h-5" />
+                                    {isGeneratingGherkin ? 'Gerando...' : 'Gerar Gherkin'}
+                                </button>
+                            )}
+                            
+                            <button onClick={handleGeneratePrototype} disabled={isGeneratingPrototype} className="w-full flex items-center justify-center gap-2 bg-gray-700 hover:bg-gray-600 disabled:opacity-50 text-white font-bold py-2 px-4 rounded transition">
+                                <CodeIcon className="w-5 h-5" />
+                                {isGeneratingPrototype ? 'Gerando...' : 'Gerar Protótipo'}
+                            </button>
+                            <button onClick={() => planningMode === 'bdd' ? setIsFeatureDescriptionModalOpen(true) : setIsOriginalStoryModalOpen(true)} className="w-full flex items-center justify-center gap-2 bg-gray-700 hover:bg-gray-600 text-white font-bold py-2 px-4 rounded transition">
+                                <BookOpenIcon className="w-5 h-5" />
+                                {planningMode === 'bdd' ? 'Ver Feature' : 'Ver História Original'}
+                            </button>
+                             
+                            {suggestedStory && planningMode === 'story' && (
+                                <div className="pt-4 border-t border-gray-700">
+                                    <h4 className="text-md font-semibold text-purple-300 mb-2">História Sugerida</h4>
+                                    <div className="bg-gray-900/50 p-3 rounded-md max-h-48 overflow-y-auto">
+                                        <pre className="text-sm text-gray-300 whitespace-pre-wrap font-sans">{suggestedStory}</pre>
+                                    </div>
+                                    <div className="mt-3">
+                                        <textarea
+                                            value={refinementPrompt}
+                                            onChange={(e) => setRefinementPrompt(e.target.value)}
+                                            rows={2}
+                                            className="w-full p-2 bg-gray-900 border border-gray-700 rounded-md focus:ring-1 focus:ring-purple-500 transition text-sm text-gray-300 resize-y"
+                                            placeholder="Instruções para refinar..."
+                                            disabled={isRefining}
+                                        />
+                                        <button onClick={handleRefineSuggestion} disabled={!refinementPrompt.trim() || isRefining} className="w-full mt-2 bg-purple-700 hover:bg-purple-800 disabled:bg-gray-600 text-white font-bold py-1.5 px-3 rounded transition text-sm">
+                                            {isRefining ? 'Refinando...' : 'Refinar Sugestão'}
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
+                             
+                            {generatedSingleGherkin && planningMode === 'bdd' && (
+                                <div className="pt-4 border-t border-gray-700">
+                                    <div className="flex justify-between items-center mb-2">
+                                         <h4 className="text-md font-semibold text-purple-300">Gherkin Gerado</h4>
+                                         <button onClick={() => handleCopy(generatedSingleGherkin)} className="text-gray-400 hover:text-white transition-colors">
+                                            {copied ? <ClipboardCheckIcon className="w-4 h-4 text-green-400" /> : <ClipboardIcon className="w-4 h-4" />}
+                                         </button>
+                                    </div>
+                                    <div className="bg-gray-900/50 p-3 rounded-md max-h-60 overflow-y-auto">
+                                        <pre className="text-sm text-gray-300 whitespace-pre-wrap font-mono"><GherkinContent text={generatedSingleGherkin} /></pre>
+                                    </div>
+                                    <button onClick={handleCompleteBddPlanning} className="w-full mt-3 bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded transition">
+                                        Completar e Voltar
+                                    </button>
+                                </div>
+                            )}
+
+                            {generatedGroupGherkin && planningMode === 'bdd' && (
+                                <div className="pt-4 border-t border-gray-700">
+                                    <h4 className="text-md font-semibold text-purple-300 mb-2">Cenários Gerados</h4>
+                                     <div className="bg-gray-900/50 p-3 rounded-md max-h-60 overflow-y-auto space-y-4">
+                                        {generatedGroupGherkin.map(g => (
+                                            <details key={g.title} className="bg-gray-700/50 p-2 rounded">
+                                                <summary className="font-semibold cursor-pointer text-sm">{g.title}</summary>
+                                                <pre className="text-xs text-gray-300 whitespace-pre-wrap font-mono mt-2 pl-2 border-l-2 border-gray-500"><GherkinContent text={g.gherkin} /></pre>
+                                            </details>
+                                        ))}
+                                    </div>
+                                    <button onClick={handleCompleteBddPlanning} className="w-full mt-3 bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded transition">
+                                        Completar e Voltar
+                                    </button>
+                                </div>
+                            )}
+
+                            {testScenarios && (
+                                <div className="pt-4 border-t border-gray-700">
+                                    <div className="flex justify-between items-center mb-2">
+                                         <h4 className="text-md font-semibold text-purple-300">Cenários de Teste</h4>
+                                         <button onClick={() => handleCopy(testScenarios)} className="text-gray-400 hover:text-white transition-colors">
+                                            {copied ? <ClipboardCheckIcon className="w-4 h-4 text-green-400" /> : <ClipboardIcon className="w-4 h-4" />}
+                                         </button>
+                                    </div>
+                                    <div className="bg-gray-900/50 p-3 rounded-md max-h-48 overflow-y-auto">
+                                        <pre className="text-sm text-gray-300 whitespace-pre-wrap font-sans">{testScenarios}</pre>
+                                    </div>
+                                </div>
+                            )}
                         </div>
                      </div>
                 );

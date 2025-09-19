@@ -1,3 +1,4 @@
+
 import { GoogleGenAI, GenerateContentResponse, Type, Part } from "@google/genai";
 import { Persona, ParsedStory, ConversationTurn, InitialQuestions, ComplexityAnalysisResult, SplitStory, BddFeatureSuggestion, GherkinScenario } from '../types';
 
@@ -491,7 +492,9 @@ export const generatePrototype = async (storyDescription: string, modelPrototype
             contents: prompt,
         });
 
-        return response.text.trim();
+        let code = response.text.trim();
+        code = code.replace(/^```(?:\w+)?\s*/, '').replace(/\s*```$/, '');
+        return code.trim();
     } catch (error) {
         console.error("Error generating prototype:", error);
         throw new Error("Falha ao gerar o protótipo visual.");
@@ -534,7 +537,9 @@ export const generatePrototypeFromFeature = async (featureFileContent: string, m
             contents: prompt,
         });
 
-        return response.text.trim();
+        let code = response.text.trim();
+        code = code.replace(/^```(?:\w+)?\s*/, '').replace(/\s*```$/, '');
+        return code.trim();
     } catch (error) {
         console.error("Error generating prototype from feature:", error);
         throw new Error("Falha ao gerar o protótipo visual a partir da feature.");
@@ -970,7 +975,9 @@ export const generateStepDefinitions = async (featureFileContent: string, techno
             contents: prompt,
         });
 
-        return response.text.trim();
+        let code = response.text.trim();
+        code = code.replace(/^```(?:\w+)?\s*/, '').replace(/\s*```$/, '');
+        return code.trim();
     } catch (error) {
         console.error("Error generating step definitions:", error);
         throw new Error("Falha ao gerar as definições de steps.");
