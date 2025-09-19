@@ -1,4 +1,5 @@
 
+
 import { GoogleGenAI, GenerateContentResponse, Type, Part } from "@google/genai";
 import { Persona, ParsedStory, ConversationTurn, InitialQuestions, ComplexityAnalysisResult, SplitStory, BddFeatureSuggestion, GherkinScenario } from '../types';
 
@@ -808,12 +809,13 @@ export const generateGherkinFromGroupConversation = async (featureDescription: s
         ---
 
         Com base em TODA a discussão, gere o Gherkin para CADA um dos cenários solicitados, seguindo estas regras:
-        - **Regra Principal:** Use os keywords do Gherkin em **inglês** ('Scenario', 'Given', 'When', 'Then', 'And'). O texto dos passos deve permanecer em português.
+        - **Regra Principal:** Use os keywords do Gherkin em **inglês** ('Background', 'Scenario', 'Given', 'When', 'Then', 'And'). O texto dos passos deve permanecer em português.
+        - **Consolidação com Background:** Analise todos os cenários a serem gerados. Se você identificar que múltiplos cenários compartilham exatamente os mesmos passos iniciais ('Given'), você deve extrair esses passos e colocá-los em uma seção \`Background\`. No array de resposta JSON, o valor da chave "gherkin" para o **primeiro cenário** deve conter a seção \`Background\` completa, seguida por uma linha em branco, e depois o cenário individual (que deve começar a partir do passo \`When\` ou \`And\`). Para todos os outros cenários que usam esse background, o valor de "gherkin" deles deve começar diretamente a partir de seu primeiro passo \`When\` ou \`And\`.
         - **Doc Strings:** Se a resposta do usuário for um texto de múltiplas linhas que precise ser verificado na íntegra (como o corpo de um e-mail ou um payload JSON), é mandatório que você formate esse texto como um argumento de Doc String, usando três aspas duplas (""").
         - **Data Tables:** Se a resposta do usuário contiver uma tabela formatada com pipes (|), formate-a como uma Data Table do Gherkin, alinhada sob o step correspondente.
         - Reutilize steps quando fizer sentido entre os cenários.
 
-        Retorne um array de objetos JSON, onde cada objeto representa um cenário e contém as chaves "title" e "gherkin". O valor de "gherkin" deve ser o bloco de texto completo, começando com 'Scenario: ...'.
+        Retorne um array de objetos JSON, onde cada objeto representa um cenário e contém as chaves "title" e "gherkin". O valor de "gherkin" deve ser o bloco de texto Gherkin completo para esse cenário, seguindo a regra do Background.
         `;
 
         const responseSchema = {
@@ -1052,7 +1054,8 @@ export const convertDocumentToBdd = async (document: string, featureTitle: strin
         1.  Escreva uma declaração 'Funcionalidade:' clara e concisa para a feature focada.
         2.  Extraia as regras de negócio e os requisitos chave **apenas** da funcionalidade "${featureTitle}".
         3.  Crie múltiplos cenários de teste em Gherkin ('Cenário:', 'Dado', 'Quando', 'Então') que cubram os principais fluxos, casos de borda e cenários de erro para esta funcionalidade específica.
-        4.  O resultado deve ser um único bloco de texto contendo o arquivo .feature completo e bem formatado.
+        4.  **Consolidação com Background:** Antes de escrever os cenários, analise todos eles. Se você identificar que múltiplos cenários compartilham exatamente os mesmos passos iniciais ('Given'), extraia esses passos comuns e coloque-os em uma seção \`Background\` no início do Gherkin, logo após a declaração da \`Funcionalidade:\`. Os cenários individuais devem então começar a partir do passo \`When\`.
+        5.  O resultado deve ser um único bloco de texto contendo o arquivo .feature completo e bem formatado.
 
         Produza apenas o conteúdo do arquivo .feature, em português do Brasil. Não inclua comentários extras ou explicações.
         `;
