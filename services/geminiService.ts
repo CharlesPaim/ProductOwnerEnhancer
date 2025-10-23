@@ -154,7 +154,7 @@ export const generateFollowUpQuestion = async (story: ParsedStory, conversationH
 
         const prompt = `
         Você está em uma sessão de planejamento para refinar uma história de usuário. Você está atuando como um(a) **${nextPersona}**.
-        O objetivo principal é ajudar o Product Owner a melhorar a história, focando em aspectos funcionais e de negócio, não em detalhes de implementação técnica.
+        O objetivo principal é ajudar o Product Owner a melhorar a história.
 
         **Sua Diretriz como ${nextPersona}:**
         ${personaGuidelines[nextPersona]}
@@ -169,8 +169,13 @@ export const generateFollowUpQuestion = async (story: ParsedStory, conversationH
         ${history}
         ---
         
-        Com base na sua diretriz, na história e na conversa, formule sua próxima pergunta de acompanhamento. A pergunta deve ser concisa, relevante e evitar tópicos já discutidos.
-        Retorne apenas a pergunta como uma única string, em português do Brasil, sem nenhum preâmbulo.
+        **Sua Tarefa:**
+        Com base na sua diretriz, na história e na conversa, avalie o estado atual.
+
+        1.  **Verifique a Satisfação:** Analise a conversa. Se você acredita que suas principais preocupações como um(a) **${nextPersona}** já foram suficientemente abordadas pelas respostas do usuário (mesmo que as respostas tenham sido para outras personas), então sua tarefa está concluída.
+        2.  **Formule a Resposta:**
+            *   **Se sua tarefa estiver concluída**, retorne APENAS a frase \`CONSENSO: ${nextPersona}\`. Não adicione nenhuma outra palavra ou pontuação.
+            *   **Caso contrário**, formule sua próxima pergunta de acompanhamento. A pergunta deve ser concisa, relevante e evitar tópicos já discutidos. Retorne apenas a pergunta como uma única string, em português do Brasil.
         `;
 
         const response = await ai.models.generateContent({
@@ -664,9 +669,13 @@ export const generateBddFollowUpQuestion = async (featureDescription: string, sc
         ${history}
         ---
 
-        Com base na sua diretriz, na funcionalidade, no cenário e na conversa, formule sua próxima pergunta.
-        A pergunta deve ser concisa e focada em esclarecer um aspecto do comportamento esperado.
-        Retorne apenas a pergunta como uma única string, em português do Brasil, sem nenhum preâmbulo.
+        **Sua Tarefa:**
+        Com base na sua diretriz, na funcionalidade, no cenário e na conversa, avalie o estado atual.
+
+        1.  **Verifique a Satisfação:** Analise a conversa. Se você acredita que os detalhes necessários para escrever o cenário Gherkin já foram obtidos, sua tarefa está concluída.
+        2.  **Formule a Resposta:**
+            *   **Se sua tarefa estiver concluída**, retorne APENAS a frase \`CONSENSO: ${nextPersona}\`.
+            *   **Caso contrário**, formule sua próxima pergunta para esclarecer um aspecto do comportamento esperado. Retorne apenas a pergunta.
         `;
 
         const response = await ai.models.generateContent({
@@ -706,11 +715,13 @@ export const generateBddFollowUpQuestionForGroup = async (featureDescription: st
         ${history}
         ---
 
-        Com base na sua diretriz, na funcionalidade, nos cenários e na conversa:
-        1. Identifique se ainda há pontos em comum a serem esclarecidos. Se houver, faça uma pergunta sobre isso.
-        2. Se os pontos em comum estiverem claros, faça uma pergunta focada nas *diferenças* entre os cenários.
-        
-        A pergunta deve ser concisa e focada. Retorne apenas a pergunta como uma única string, em português do Brasil, sem nenhum preâmbulo.
+        **Sua Tarefa:**
+        Com base na sua diretriz, na funcionalidade, nos cenários e na conversa, avalie o estado atual.
+
+        1.  **Verifique a Satisfação:** Analise a conversa. Se você acredita que as informações para todos os cenários estão claras, sua tarefa está concluída.
+        2.  **Formule a Resposta:**
+            *   **Se sua tarefa estiver concluída**, retorne APENAS a frase \`CONSENSO: ${nextPersona}\`.
+            *   **Caso contrário**, identifique se ainda há pontos em comum a serem esclarecidos. Se houver, faça uma pergunta sobre isso. Se não, faça uma pergunta focada nas *diferenças* entre os cenários. Retorne apenas a pergunta.
         `;
 
         const response = await ai.models.generateContent({

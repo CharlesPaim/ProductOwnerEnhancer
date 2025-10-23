@@ -1,13 +1,10 @@
-
-
-
-
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { Persona, ParsedStory, RedmineIssue, ConversationTurn, ComplexityAnalysisResult, SplitStory, BddFeatureSuggestion, GherkinScenario } from './types';
 import { generateInitialQuestions, suggestNewStoryVersion, generateFollowUpQuestion, generateNewStory, refineSuggestedStory, generateTestScenarios, analyzeStoryComplexity, generateStoriesFromTranscript, generatePrototype, generateBddScenarios, generateBddFollowUpQuestion, generateGherkinFromConversation, generatePoChecklist, generateStepDefinitions, convertDocumentToBdd, analyzeAndBreakdownDocument, analyzePlanningTranscript, analyzeHomologationTranscript, generatePrototypeFromFeature, generateBddFollowUpQuestionForGroup, generateGherkinFromGroupConversation, extractTableColumnsFromQuestion, generateInitialScenarioOutline } from './services/geminiService';
 import { personaDetails, UserIcon, BookOpenIcon, XIcon, MenuIcon, SparklesIcon, HomeIcon, ClipboardIcon, ClipboardCheckIcon, ClipboardListIcon, InformationCircleIcon, ScaleIcon, MicrophoneIcon, TemplateIcon, ViewBoardsIcon, DocumentTextIcon, CheckCircleIcon, PencilIcon, TrashIcon, CodeIcon, SwitchHorizontalIcon, DownloadIcon, TableIcon, PlusIcon, ArrowLeftIcon } from './components/icons';
 import DataTableModal from './components/DataTableModal';
 import Breadcrumbs from './components/Breadcrumbs';
+import WorkspaceView from './components/WorkspaceView';
 
 
 type BddScenario = {
@@ -26,11 +23,12 @@ type ConfirmationAction = {
 
 type TranscriptionMode = 'requirements' | 'planning' | 'homologation';
 
-type AppState = 'home' | 'refining' | 'generating' | 'transcribing_context' | 'transcribing_input' | 'transcribing_review' | 'bdd_input' | 'bdd_scenarios' | 'bdd_review' | 'bdd_converting_doc_input' | 'bdd_breakdown_review' | 'bdd_feature_selection' | 'bdd_converting_doc_review' | 'loading_generation' | 'loading_transcription' | 'loading_bdd_scenarios' | 'loading_bdd_breakdown' | 'loading_bdd_conversion' | 'loading_outline_generation' | 'scenario_outline_editor' | 'reviewing' | 'configuring' | 'loading' | 'planning' | 'error' | 'analyzing_complexity' | 'story_selection';
+type AppState = 'home' | 'workspace' | 'refining' | 'generating' | 'transcribing_context' | 'transcribing_input' | 'transcribing_review' | 'bdd_input' | 'bdd_scenarios' | 'bdd_review' | 'bdd_converting_doc_input' | 'bdd_breakdown_review' | 'bdd_feature_selection' | 'bdd_converting_doc_review' | 'loading_generation' | 'loading_transcription' | 'loading_bdd_scenarios' | 'loading_bdd_breakdown' | 'loading_bdd_conversion' | 'loading_outline_generation' | 'scenario_outline_editor' | 'reviewing' | 'loading' | 'error' | 'analyzing_complexity' | 'story_selection';
 
 const translateStateToFriendlyName = (state: AppState): string => {
     const nameMap: Record<AppState, string> = {
         'home': 'Início',
+        'workspace': 'Mesa de Trabalho',
         'refining': 'Refinar História',
         'generating': 'Gerar História',
         'transcribing_context': 'Analisar Transcrição',
@@ -44,8 +42,6 @@ const translateStateToFriendlyName = (state: AppState): string => {
         'bdd_feature_selection': 'Seleção de Feature',
         'bdd_converting_doc_review': 'Revisão da Conversão',
         'reviewing': 'Revisar História Gerada',
-        'configuring': 'Configurar Sessão',
-        'planning': 'Sessão de Planejamento',
         'story_selection': 'Seleção de História',
         'scenario_outline_editor': 'Editor de Cenário',
         'loading_generation': 'Gerando...',
@@ -348,7 +344,7 @@ const StoryInput = ({ onStorySubmit }: { onStorySubmit: (story: ParsedStory) => 
                     onClick={handleSubmit}
                     className="mt-4 w-full bg-purple-600 hover:bg-purple-700 text-white font-bold py-2 px-4 rounded-md transition-transform transform hover:scale-105"
                 >
-                    Configurar Sessão
+                    Iniciar Refinamento
                 </button>
             </div>
         </div>
@@ -625,115 +621,12 @@ const ReviewGeneratedStory = ({ story, onConfirm, onEdit }: { story: ParsedStory
                     onClick={onConfirm}
                     className="mt-6 w-full bg-purple-600 hover:bg-purple-700 text-white font-bold py-2 px-4 rounded-md transition-transform transform hover:scale-105"
                 >
-                    Confirmar e Configurar Sessão
+                    Confirmar e Iniciar Refinamento
                 </button>
             </div>
         </div>
     );
 };
-
-
-const PersonaConfiguration = ({ onStart, onCancel }: { onStart: (personas: Persona[]) => void; onCancel: () => void; }) => {
-    const allPersonas = [Persona.Dev, Persona.QA, Persona.Architect, Persona.UX, Persona.DevOps];
-    const [selected, setSelected] = useState<Persona[]>([Persona.Dev, Persona.QA, Persona.Architect]);
-    const dragItem = useRef<number | null>(null);
-    const dragOverItem = useRef<number | null>(null);
-
-    const handleSelect = (persona: Persona) => {
-        setSelected(prev => 
-            prev.includes(persona) ? prev.filter(p => p !== persona) : [...prev, persona]
-        );
-    };
-    
-    const handleRemove = (persona: Persona) => {
-        setSelected(prev => prev.filter(p => p !== persona));
-    };
-
-    const handleDragSort = () => {
-        if(dragItem.current === null || dragOverItem.current === null) return;
-        const selectedCopy = [...selected];
-        const draggedItemContent = selectedCopy.splice(dragItem.current, 1)[0];
-        selectedCopy.splice(dragOverItem.current, 0, draggedItemContent);
-        dragItem.current = null;
-        dragOverItem.current = null;
-        setSelected(selectedCopy);
-    };
-
-    return (
-        <div className="flex flex-col items-center justify-center min-h-screen p-4 -mt-20">
-            <div className="w-full max-w-2xl bg-gray-800 rounded-lg shadow-xl p-6">
-                <h2 className="text-xl font-semibold mb-2 text-gray-200">Configure a Sessão de Planejamento</h2>
-                <p className="text-gray-400 mb-4 text-sm">Selecione as personas e arraste-as para definir a ordem das perguntas.</p>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
-                        <h3 className="text-lg font-medium text-cyan-300 mb-3">Personas Disponíveis</h3>
-                        <div className="space-y-2">
-                            {allPersonas.map(p => {
-                                const details = personaDetails[p];
-                                const isSelected = selected.includes(p);
-                                return (
-                                    <label key={p} className={`flex items-center p-2 rounded-md cursor-pointer transition-colors ${isSelected ? 'bg-gray-700' : 'bg-gray-900/50 hover:bg-gray-700/50'}`}>
-                                        <input type="checkbox" checked={isSelected} onChange={() => handleSelect(p)} className="h-4 w-4 rounded bg-gray-700 border-gray-600 text-purple-600 focus:ring-purple-500" />
-                                        <div className={`ml-3 flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center border-2 ${details.color} bg-gray-800`}>
-                                            <details.icon className="w-4 h-4 text-gray-300" />
-                                        </div>
-                                        <span className="ml-2 text-gray-300">{p}</span>
-                                    </label>
-                                );
-                            })}
-                        </div>
-                    </div>
-
-                    <div>
-                         <h3 className="text-lg font-medium text-cyan-300 mb-3">Ordem da Sessão</h3>
-                         <div className="bg-gray-900/50 p-2 rounded-md min-h-[200px]">
-                            {selected.map((p, index) => {
-                                const details = personaDetails[p];
-                                return (
-                                    <div 
-                                        key={p} 
-                                        className="flex items-center p-2 mb-2 bg-gray-700 rounded-md group"
-                                    >
-                                        <div 
-                                          className="flex-shrink-0 cursor-grab"
-                                          draggable
-                                          onDragStart={() => dragItem.current = index}
-                                          onDragEnter={() => dragOverItem.current = index}
-                                          onDragEnd={handleDragSort}
-                                          onDragOver={(e) => e.preventDefault()}
-                                        >
-                                            <MenuIcon className="w-5 h-5 text-gray-400 mr-2"/>
-                                        </div>
-                                        <div className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center border-2 ${details.color} bg-gray-800`}>
-                                            <details.icon className="w-4 h-4 text-gray-300" />
-                                        </div>
-                                        <span className="ml-2 text-gray-300 flex-grow">{p}</span>
-                                        <button 
-                                            onClick={() => handleRemove(p)} 
-                                            className="ml-2 p-1 rounded-full opacity-0 group-hover:opacity-100 hover:bg-red-500/20 transition-opacity"
-                                            aria-label={`Remover ${p}`}
-                                            title={`Remover ${p}`}
-                                        >
-                                            <XIcon className="w-4 h-4 text-red-400"/>
-                                        </button>
-                                    </div>
-                                );
-                            })}
-                            {selected.length === 0 && <p className="text-center text-gray-500 p-8">Selecione personas para começar.</p>}
-                         </div>
-                    </div>
-                </div>
-
-                <div className="flex justify-end gap-3 mt-6">
-                    <button onClick={onCancel} className="bg-gray-600 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded transition">Cancelar</button>
-                    <button onClick={() => onStart(selected)} disabled={selected.length === 0} className="bg-purple-600 hover:bg-purple-700 disabled:bg-gray-500 text-white font-bold py-2 px-4 rounded transition">Iniciar Sessão</button>
-                </div>
-            </div>
-        </div>
-    );
-};
-
 
 const Loader = ({ text }: { text: string }) => (
     <div className="flex flex-col items-center justify-center h-full gap-4">
@@ -744,18 +637,6 @@ const Loader = ({ text }: { text: string }) => (
         <p className="text-gray-400">{text}</p>
     </div>
 );
-
-
-const PersonaAvatar = ({ persona }: { persona: Persona }) => {
-    const details = personaDetails[persona];
-    if (!details) return null;
-    const Icon = details.icon;
-    return (
-        <div className={`flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center border-2 ${details.color} bg-gray-800`}>
-            <Icon className="w-5 h-5 text-gray-300" />
-        </div>
-    );
-};
 
 const OriginalStoryModal = ({ story, onClose, titleOverride, onDownload }: { story: ParsedStory; onClose: () => void; titleOverride?: string; onDownload?: () => void; }) => {
     const [copied, setCopied] = useState(false);
@@ -1025,6 +906,8 @@ const App: React.FC = () => {
     const [suggestedStory, setSuggestedStory] = useState<string | null>(null);
     const [splitStories, setSplitStories] = useState<SplitStory[]>([]);
     const [complexityAnalysis, setComplexityAnalysis] = useState<ComplexityAnalysisResult | null>(null);
+    const [suggestionForReview, setSuggestionForReview] = useState<string | null>(null);
+    const [storyHistory, setStoryHistory] = useState<string[]>([]);
     
     // Transcription state
     const [transcriptionMode, setTranscriptionMode] = useState<TranscriptionMode | null>(null);
@@ -1057,6 +940,7 @@ const App: React.FC = () => {
     const [activePersonas, setActivePersonas] = useState<Persona[]>([]);
     const [conversation, setConversation] = useState<ConversationTurn[]>([]);
     const [currentAnswer, setCurrentAnswer] = useState('');
+    const [satisfiedPersonas, setSatisfiedPersonas] = useState<Persona[]>([]);
     
     // UI and loading state
     const [isAnswering, setIsAnswering] = useState(false);
@@ -1079,7 +963,6 @@ const App: React.FC = () => {
     const [isStepDefModalOpen, setIsStepDefModalOpen] = useState(false);
     const [isPrototypeModalOpen, setIsPrototypeModalOpen] = useState(false);
     const [refinementPrompt, setRefinementPrompt] = useState('');
-    const [copied, setCopied] = useState(false);
     const [copiedTurnId, setCopiedTurnId] = useState<number | null>(null);
     const [testScenarios, setTestScenarios] = useState<string | null>(null);
     const [isFeaturesModalOpen, setIsFeaturesModalOpen] = useState(false);
@@ -1104,8 +987,6 @@ const App: React.FC = () => {
     const [bddPrototypeCache, setBddPrototypeCache] = useState<{ featureContent: string; model: string; prototype: string; } | null>(null);
     const [gherkinCache, setGherkinCache] = useState<{ conversation: ConversationTurn[]; gherkin: string | GherkinScenario[]; } | null>(null);
 
-    const conversationEndRef = useRef<HTMLDivElement>(null);
-    
     const currentTurn = conversation[conversation.length - 1];
 
     const resetTranscriptionState = () => {
@@ -1182,12 +1063,8 @@ const App: React.FC = () => {
     };
 
     useEffect(() => {
-        conversationEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-    }, [conversation]);
-
-    useEffect(() => {
         // Check if it's a new turn that hasn't been processed for columns yet
-        if (appState === 'planning' && planningMode === 'bdd' && currentTurn && !currentTurn.answer && currentTurn.id !== currentTurnIdForColumnCheck) {
+        if (appState === 'workspace' && planningMode === 'bdd' && currentTurn && !currentTurn.answer && currentTurn.id !== currentTurnIdForColumnCheck) {
             const inferColumns = async () => {
                 setCurrentTurnIdForColumnCheck(currentTurn.id); // Mark as processed
                 setIsExtractingColumns(true);
@@ -1212,16 +1089,13 @@ const App: React.FC = () => {
         if (turnId) {
             setCopiedTurnId(turnId);
             setTimeout(() => setCopiedTurnId(null), 2000);
-        } else {
-            setCopied(true);
-            setTimeout(() => setCopied(false), 2000);
         }
     };
 
     const handleStorySubmit = useCallback((story: ParsedStory) => {
         setPlanningMode('story');
         setOriginalStory(story);
-        navigateTo('configuring');
+        navigateTo('workspace');
     }, []);
 
     const handleGenerateStory = useCallback(async (requirements: string) => {
@@ -1368,7 +1242,7 @@ const App: React.FC = () => {
         setOriginalStory({ title: scenario.title, description: `Este é um cenário para a funcionalidade: "${featureDescription}"` });
         setPlanningMode('bdd');
         setPlanningScope('single');
-        navigateTo('configuring');
+        navigateTo('workspace');
     }, [bddScenarios, featureDescription]);
 
     const handleStartOutlineEditing = useCallback(async (index: number) => {
@@ -1441,15 +1315,17 @@ const App: React.FC = () => {
         setOriginalStory({ title: `Detalhamento de Múltiplos Cenários`, description: `Funcionalidade: ${featureDescription}\n\nCenários:\n- ${titles.join('\n- ')}` });
         setPlanningMode('bdd');
         setPlanningScope('group');
-        navigateTo('configuring');
+        navigateTo('workspace');
     }, [bddScenarios, featureDescription, selectedScenarioIds]);
 
     const handleReviewConfirm = useCallback(() => {
         if (!originalStory) return;
-        navigateTo('configuring');
+        setPlanningMode('story');
+        navigateTo('workspace');
     }, [originalStory]);
 
     const handleStartPlanning = useCallback(async (selectedPersonas: Persona[]) => {
+        setSatisfiedPersonas([]);
         let contextStory: ParsedStory | null = null;
         if (planningMode === 'story') {
             contextStory = originalStory;
@@ -1462,9 +1338,9 @@ const App: React.FC = () => {
         
         if (!contextStory || selectedPersonas.length === 0) return;
         
-        navigateTo('loading');
         setActivePersonas(selectedPersonas);
         setError(null);
+        setIsAnswering(true);
         try {
             const initialQs = await generateInitialQuestions(contextStory, selectedPersonas);
             
@@ -1474,61 +1350,100 @@ const App: React.FC = () => {
                 question: initialQs[personaToKey(selectedPersonas[0])],
             };
             setConversation([firstQuestion]);
-            navigateTo('planning');
         } catch (err) {
             setError(err instanceof Error ? err.message : 'Ocorreu um erro desconhecido.');
             navigateTo('error');
+        } finally {
+            setIsAnswering(false);
         }
     }, [originalStory, planningMode, currentScenarioIndex, bddScenarios, featureDescription, planningScope, currentGroupIndexes]);
 
-    const handleCancelConfiguration = useCallback(() => {
-        if (planningMode === 'bdd') {
-            navigateTo('bdd_scenarios');
-        } else if (splitStories.length > 0) {
-            navigateTo('story_selection');
-        } else {
-            navigateTo('home');
-        }
-        setOriginalStory(null);
-        setSelectedScenarioIds([]);
-    }, [splitStories, planningMode]);
-
     const submitAnswer = useCallback(async (answer: string) => {
-        const contextStory = originalStory;
-
-        if (!contextStory || activePersonas.length === 0) return;
+        if (!originalStory || activePersonas.length === 0) return;
 
         setIsAnswering(true);
         setGherkinCache(null);
         setGeneratedSingleGherkin(null);
         setGeneratedGroupGherkin(null);
-        
-        const updatedConversation = conversation.map((turn, index) => 
+
+        const answeredTurnConversation = conversation.map((turn, index) =>
             index === conversation.length - 1 ? { ...turn, answer } : turn
         );
-        setConversation(updatedConversation);
-        setCurrentAnswer('');
+
+        let tempConversation = answeredTurnConversation;
+        let tempSatisfiedPersonas = [...satisfiedPersonas];
+        const lastAskingPersona = conversation[conversation.length - 1].persona;
+        let nextPersonaIndex = activePersonas.findIndex(p => p === lastAskingPersona);
 
         try {
-            const currentTurnIndex = updatedConversation.length - 1;
-            const currentPersonaIndex = activePersonas.indexOf(updatedConversation[currentTurnIndex].persona);
-            const nextPersona = activePersonas[(currentPersonaIndex + 1) % activePersonas.length];
+            for (let i = 0; i < activePersonas.length; i++) {
+                nextPersonaIndex = (nextPersonaIndex + 1) % activePersonas.length;
+                const nextPersona = activePersonas[nextPersonaIndex];
 
-            const nextQuestionText = planningMode === 'bdd'
-                ? planningScope === 'single'
-                    ? await generateBddFollowUpQuestion(featureDescription, contextStory.title, updatedConversation, nextPersona)
-                    : await generateBddFollowUpQuestionForGroup(featureDescription, currentGroupIndexes.map(i => bddScenarios[i].title), updatedConversation, nextPersona)
-                : await generateFollowUpQuestion(contextStory, updatedConversation, nextPersona);
-                
-            const nextTurn: ConversationTurn = { id: Date.now(), persona: nextPersona, question: nextQuestionText };
-            setConversation(prev => [...prev, nextTurn]);
+                if (tempSatisfiedPersonas.includes(nextPersona)) {
+                    continue;
+                }
+
+                let aiResponseText: string;
+                 if (planningMode === 'bdd') {
+                    const titles = planningScope === 'single' ? [originalStory.title] : currentGroupIndexes.map(i => bddScenarios[i].title);
+                    if (planningScope === 'single') {
+                        aiResponseText = await generateBddFollowUpQuestion(featureDescription, titles[0], tempConversation, nextPersona);
+                    } else {
+                        aiResponseText = await generateBddFollowUpQuestionForGroup(featureDescription, titles, tempConversation, nextPersona);
+                    }
+                } else {
+                    aiResponseText = await generateFollowUpQuestion(originalStory, tempConversation, nextPersona);
+                }
+
+
+                if (aiResponseText.startsWith("CONSENSO:")) {
+                    if (!tempSatisfiedPersonas.includes(nextPersona)) {
+                      tempSatisfiedPersonas.push(nextPersona);
+                    }
+
+                    const conclusionTurn: ConversationTurn = {
+                        id: Date.now() + i,
+                        persona: nextPersona,
+                        question: `Entendido. Da minha perspectiva como ${nextPersona}, não tenho mais dúvidas.`,
+                        isSystemMessage: true,
+                    };
+                    tempConversation = [...tempConversation, conclusionTurn];
+
+                    if (tempSatisfiedPersonas.length === activePersonas.length) {
+                        break;
+                    }
+                    continue;
+                } else {
+                    const nextQuestionTurn: ConversationTurn = {
+                        id: Date.now() + i,
+                        persona: nextPersona,
+                        question: aiResponseText,
+                    };
+                    tempConversation = [...tempConversation, nextQuestionTurn];
+                    break; 
+                }
+            }
+
+            setConversation(tempConversation);
+            setSatisfiedPersonas(tempSatisfiedPersonas);
+            setCurrentAnswer('');
+
+            if (tempSatisfiedPersonas.length === activePersonas.length && activePersonas.length > 0) {
+                setConversation(prev => [...prev, {
+                    id: Date.now() + 99,
+                    persona: Persona.PO,
+                    question: "Consenso atingido! Todas as personas estão satisfeitas. Você já pode sugerir uma nova versão da história.",
+                    isSystemMessage: true
+                }]);
+            }
 
         } catch (err) {
             setError(err instanceof Error ? err.message : 'Falha ao obter a próxima pergunta.');
         } finally {
             setIsAnswering(false);
         }
-    }, [conversation, originalStory, activePersonas, planningMode, featureDescription, planningScope, currentGroupIndexes, bddScenarios]);
+    }, [conversation, originalStory, activePersonas, satisfiedPersonas, planningMode, featureDescription, planningScope, currentGroupIndexes, bddScenarios]);
 
     const handleAnswerSubmit = () => {
         if (!currentAnswer.trim() || isAnswering) return;
@@ -1544,18 +1459,11 @@ const App: React.FC = () => {
         if (!originalStory || conversation.length === 0) return;
         setIsSuggesting(true);
         setError(null);
-        // Invalidate caches
-        setTestScenariosCache(null);
-        setPrototypeCache(null);
-        setComplexityCache(null);
-        setTestScenarios(null);
-        setSuggestedPrototype(null);
-        setComplexityAnalysis(null);
         try {
             const lastTurn = conversation[conversation.length - 1];
             const conversationForSuggestion = lastTurn.answer ? conversation : conversation.slice(0, -1);
             const suggestion = await suggestNewStoryVersion(originalStory, conversationForSuggestion);
-            setSuggestedStory(suggestion);
+            setSuggestionForReview(suggestion);
         } catch (err) {
             setError(err instanceof Error ? err.message : 'Falha ao gerar a sugestão.');
         } finally {
@@ -1563,27 +1471,34 @@ const App: React.FC = () => {
         }
     }, [originalStory, conversation]);
     
-    const handleRefineSuggestion = useCallback(async () => {
-        if (!suggestedStory || !refinementPrompt.trim()) return;
+    const handleAcceptSuggestion = (newStory: string) => {
+        const currentText = suggestedStory ?? (originalStory ? originalStory.description : '');
+        if (currentText) {
+            setStoryHistory(prev => [...prev, currentText]);
+        }
+        setSuggestedStory(newStory);
+        setSuggestionForReview(null);
+        // Invalidate caches that depend on the story description
+        invalidateCaches();
+    };
+
+    const handleDiscardSuggestion = () => {
+        setSuggestionForReview(null);
+    };
+    
+    const handleRefineSuggestionInReview = useCallback(async (currentSuggestion: string, prompt: string) => {
+        if (!prompt.trim()) return;
         setIsRefining(true);
         setError(null);
-        // Invalidate caches
-        setTestScenariosCache(null);
-        setPrototypeCache(null);
-        setComplexityCache(null);
-        setTestScenarios(null);
-        setSuggestedPrototype(null);
-        setComplexityAnalysis(null);
         try {
-            const refined = await refineSuggestedStory(suggestedStory, refinementPrompt);
-            setSuggestedStory(refined);
-            setRefinementPrompt('');
+            const refined = await refineSuggestedStory(currentSuggestion, prompt);
+            setSuggestionForReview(refined);
         } catch (err) {
             setError(err instanceof Error ? err.message : 'Falha ao refinar a sugestão.');
         } finally {
             setIsRefining(false);
         }
-    }, [suggestedStory, refinementPrompt]);
+    }, []);
 
     const handleGenerateGherkin = useCallback(async () => {
         if (planningMode !== 'bdd' || conversation.length === 0) return;
@@ -1855,6 +1770,7 @@ const App: React.FC = () => {
         // Reset story-specific state
         setConversation([]);
         setActivePersonas([]);
+        setSatisfiedPersonas([]);
         setSuggestedStory(null);
         setError(null);
         setCurrentAnswer('');
@@ -1870,7 +1786,7 @@ const App: React.FC = () => {
         // Set new story and move to config
         setOriginalStory(story);
         setPlanningMode('story');
-        navigateTo('configuring');
+        navigateTo('workspace');
     }, []);
 
     const handleSaveModelStory = (model: string) => {
@@ -1901,6 +1817,7 @@ const App: React.FC = () => {
         setEditingOutline(null);
         setActivePersonas([]);
         setConversation([]);
+        setSatisfiedPersonas([]);
         setCurrentAnswer('');
         setIsAnswering(false);
         setIsSuggesting(false);
@@ -1920,7 +1837,6 @@ const App: React.FC = () => {
         setIsStepDefModalOpen(false);
         setIsPrototypeModalOpen(false);
         setRefinementPrompt('');
-        setCopied(false);
         setCopiedTurnId(null);
         setTestScenarios(null);
         setIsFeaturesModalOpen(false);
@@ -1958,7 +1874,7 @@ const App: React.FC = () => {
         });
     };
 
-    const isRefiningSplitStory = (appState === 'planning' || appState === 'configuring') && splitStories.length > 0;
+    const isRefiningSplitStory = (appState === 'workspace') && splitStories.length > 0;
 
     const handleBackToSelection = () => {
         const confirmLogic = () => {
@@ -2164,7 +2080,7 @@ const App: React.FC = () => {
                             <div className="flex justify-between items-center mb-4">
                                 <h2 className="text-xl font-semibold text-purple-300">Arquivo .feature Gerado</h2>
                                 <button onClick={() => handleCopy(convertedFeatureFile)} title="Copiar Feature" className="text-gray-400 hover:text-white transition">
-                                    {copied ? <ClipboardCheckIcon className="w-5 h-5 text-green-400" /> : <ClipboardIcon className="w-5 h-5" />}
+                                    {copiedTurnId ? <ClipboardCheckIcon className="w-5 h-5 text-green-400" /> : <ClipboardIcon className="w-5 h-5" />}
                                 </button>
                             </div>
                             <div className="max-h-[60vh] overflow-y-auto pr-2 bg-gray-900/50 p-4 rounded-md">
@@ -2335,7 +2251,7 @@ const App: React.FC = () => {
                                 <label className="flex justify-between items-center mb-2 text-sm font-medium text-gray-300">
                                     <span>Scenario Outline</span>
                                     <button onClick={() => handleCopy(editingOutline.template)} title="Copiar Template" className="text-gray-400 hover:text-white transition">
-                                        {copied ? <ClipboardCheckIcon className="w-5 h-5 text-green-400" /> : <ClipboardIcon className="w-5 h-5" />}
+                                        {copiedTurnId ? <ClipboardCheckIcon className="w-5 h-5 text-green-400" /> : <ClipboardIcon className="w-5 h-5" />}
                                     </button>
                                 </label>
                                 <textarea
@@ -2420,8 +2336,6 @@ const App: React.FC = () => {
                 );
             case 'reviewing':
                 return originalStory && <ReviewGeneratedStory story={originalStory} onConfirm={handleReviewConfirm} onEdit={(story) => setOriginalStory(story)} />;
-            case 'configuring':
-                return <PersonaConfiguration onStart={handleStartPlanning} onCancel={handleCancelConfiguration} />;
             case 'loading_generation':
             case 'loading_transcription':
             case 'loading_bdd_scenarios':
@@ -2434,197 +2348,48 @@ const App: React.FC = () => {
                         <Loader text="A IA está trabalhando..." />
                     </div>
                 );
-            case 'planning':
-                if (!currentTurn) {
-                    return <Loader text="Carregando sessão..." />;
-                }
-                return (
-                     <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                        <div className="lg:col-span-2 space-y-6">
-                            {/* Conversation History */}
-                            <div className="bg-gray-800/50 p-4 sm:p-6 rounded-lg space-y-6">
-                                {conversation.map((turn, index) => (
-                                    <div key={turn.id}>
-                                        {/* Persona Question */}
-                                        <div className="flex items-start gap-4">
-                                            <PersonaAvatar persona={turn.persona} />
-                                            <div className="flex-grow bg-gray-900/70 p-4 rounded-lg rounded-tl-none relative">
-                                                <div className="flex justify-between items-center">
-                                                    <p className="font-bold text-cyan-300">{turn.persona}</p>
-                                                    <button onClick={() => handleCopy(turn.question, turn.id)} className="text-gray-400 hover:text-white transition-colors">
-                                                        {copiedTurnId === turn.id ? <ClipboardCheckIcon className="w-4 h-4 text-green-400" /> : <ClipboardIcon className="w-4 h-4" />}
-                                                    </button>
-                                                </div>
-                                                <p className="mt-2 text-gray-300 whitespace-pre-wrap">{turn.question}</p>
-                                            </div>
-                                        </div>
-                                        
-                                        {/* User Answer */}
-                                        {turn.answer && (
-                                            <div className="flex items-start gap-4 mt-4 justify-end">
-                                                 <div className="flex-grow bg-purple-900/50 p-4 rounded-lg rounded-br-none max-w-[85%]">
-                                                    <p className="font-bold text-purple-300">Sua Resposta</p>
-                                                    <p className="mt-2 text-gray-300 whitespace-pre-wrap">{turn.answer}</p>
-                                                </div>
-                                                <div className="flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center border-2 border-purple-500 bg-gray-800">
-                                                    <UserIcon className="w-5 h-5 text-gray-300" />
-                                                </div>
-                                            </div>
-                                        )}
-
-                                        {/* Divider */}
-                                        {index < conversation.length - 1 && <hr className="border-gray-700 my-6"/>}
-                                    </div>
-                                ))}
-                                <div ref={conversationEndRef}></div>
-                            </div>
-
-                            {/* Answer Input Area */}
-                            {!currentTurn.answer && (
-                                <div className="bg-gray-800/50 p-4 sm:p-6 rounded-lg" id="answer-section">
-                                    <h3 className="text-lg font-semibold text-purple-300 mb-3">Sua Resposta</h3>
-                                    <textarea
-                                        value={currentAnswer}
-                                        onChange={(e) => setCurrentAnswer(e.target.value)}
-                                        rows={5}
-                                        className="w-full p-3 bg-gray-900 border border-gray-700 rounded-md focus:ring-2 focus:ring-purple-500 transition text-gray-300 resize-y"
-                                        placeholder={`Responda como se estivesse falando com o(a) ${currentTurn.persona}...`}
-                                        disabled={isAnswering}
-                                    />
-                                    <div className="flex justify-between items-center mt-4">
-                                        <div>
-                                            {planningMode === 'bdd' && dataTableColumns.length > 0 && !isExtractingColumns && (
-                                                <button
-                                                    onClick={() => setIsDataTableModalOpen(true)}
-                                                    className="flex items-center gap-2 bg-teal-600 hover:bg-teal-700 text-white font-bold py-2 px-4 rounded transition text-sm"
-                                                    disabled={isAnswering}
-                                                >
-                                                    <TableIcon className="w-5 h-5" />
-                                                    Inserir Tabela de Dados
-                                                </button>
-                                            )}
-                                            {planningMode === 'bdd' && isExtractingColumns && <p className="text-sm text-gray-400 animate-pulse">Analisando por dados tabulares...</p>}
-                                        </div>
-                                        <div className="flex gap-4">
-                                            <button onClick={handleSkip} disabled={isAnswering} className="bg-gray-600 hover:bg-gray-700 text-white font-bold py-2 px-6 rounded transition disabled:opacity-50">Pular</button>
-                                            <button onClick={handleAnswerSubmit} disabled={!currentAnswer.trim() || isAnswering} className="bg-purple-600 hover:bg-purple-700 text-white font-bold py-2 px-6 rounded transition disabled:bg-gray-500">
-                                                {isAnswering ? 'Aguarde...' : 'Enviar Resposta'}
-                                            </button>
-                                        </div>
-                                    </div>
-                                </div>
-                            )}
-                        </div>
-                        
-                        {/* Sidebar */}
-                        <div className="bg-gray-800/50 p-6 rounded-lg self-start sticky top-28 space-y-4">
-                            <h3 className="text-lg font-semibold text-cyan-300 mb-2">Ferramentas</h3>
-                            
-                            {planningMode === 'story' && (
-                                <>
-                                    <button onClick={handleGetSuggestion} disabled={isSuggesting || conversation.length <= 1} className="w-full flex items-center justify-center gap-2 bg-gray-700 hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold py-2 px-4 rounded transition">
-                                        <SparklesIcon className="w-5 h-5" />
-                                        {isSuggesting ? 'Sugerindo...' : 'Sugerir Nova Versão'}
-                                    </button>
-                                    <button onClick={handleGenerateScenarios} disabled={isGeneratingScenarios} className="w-full flex items-center justify-center gap-2 bg-gray-700 hover:bg-gray-600 disabled:opacity-50 text-white font-bold py-2 px-4 rounded transition">
-                                        <ClipboardListIcon className="w-5 h-5" />
-                                        {isGeneratingScenarios ? 'Gerando...' : 'Gerar Cenários de Teste'}
-                                    </button>
-                                    <button onClick={handleAnalyzeComplexity} disabled={isAnalyzingComplexity} className="w-full flex items-center justify-center gap-2 bg-gray-700 hover:bg-gray-600 disabled:opacity-50 text-white font-bold py-2 px-4 rounded transition">
-                                        <ScaleIcon className="w-5 h-5" />
-                                        {isAnalyzingComplexity ? 'Analisando...' : 'Analisar Complexidade'}
-                                    </button>
-                                </>
-                            )}
-
-                            {planningMode === 'bdd' && (
-                                <button onClick={handleGenerateGherkin} disabled={isGeneratingGherkin || conversation.length <= 1} className="w-full flex items-center justify-center gap-2 bg-gray-700 hover:bg-gray-600 disabled:opacity-50 text-white font-bold py-2 px-4 rounded transition">
-                                    <DocumentTextIcon className="w-5 h-5" />
-                                    {isGeneratingGherkin ? 'Gerando...' : 'Gerar Gherkin'}
-                                </button>
-                            )}
-                            
-                            <button onClick={handleGeneratePrototype} disabled={isGeneratingPrototype} className="w-full flex items-center justify-center gap-2 bg-gray-700 hover:bg-gray-600 disabled:opacity-50 text-white font-bold py-2 px-4 rounded transition">
-                                <CodeIcon className="w-5 h-5" />
-                                {isGeneratingPrototype ? 'Gerando...' : 'Gerar Protótipo'}
-                            </button>
-                            <button onClick={() => planningMode === 'bdd' ? setIsFeatureDescriptionModalOpen(true) : setIsOriginalStoryModalOpen(true)} className="w-full flex items-center justify-center gap-2 bg-gray-700 hover:bg-gray-600 text-white font-bold py-2 px-4 rounded transition">
-                                <BookOpenIcon className="w-5 h-5" />
-                                {planningMode === 'bdd' ? 'Ver Feature' : 'Ver História Original'}
-                            </button>
-                             
-                            {suggestedStory && planningMode === 'story' && (
-                                <div className="pt-4 border-t border-gray-700">
-                                    <h4 className="text-md font-semibold text-purple-300 mb-2">História Sugerida</h4>
-                                    <div className="bg-gray-900/50 p-3 rounded-md max-h-48 overflow-y-auto">
-                                        <pre className="text-sm text-gray-300 whitespace-pre-wrap font-sans">{suggestedStory}</pre>
-                                    </div>
-                                    <div className="mt-3">
-                                        <textarea
-                                            value={refinementPrompt}
-                                            onChange={(e) => setRefinementPrompt(e.target.value)}
-                                            rows={2}
-                                            className="w-full p-2 bg-gray-900 border border-gray-700 rounded-md focus:ring-1 focus:ring-purple-500 transition text-sm text-gray-300 resize-y"
-                                            placeholder="Instruções para refinar..."
-                                            disabled={isRefining}
-                                        />
-                                        <button onClick={handleRefineSuggestion} disabled={!refinementPrompt.trim() || isRefining} className="w-full mt-2 bg-purple-700 hover:bg-purple-800 disabled:bg-gray-600 text-white font-bold py-1.5 px-3 rounded transition text-sm">
-                                            {isRefining ? 'Refinando...' : 'Refinar Sugestão'}
-                                        </button>
-                                    </div>
-                                </div>
-                            )}
-                             
-                            {generatedSingleGherkin && planningMode === 'bdd' && (
-                                <div className="pt-4 border-t border-gray-700">
-                                    <div className="flex justify-between items-center mb-2">
-                                         <h4 className="text-md font-semibold text-purple-300">Gherkin Gerado</h4>
-                                         <button onClick={() => handleCopy(generatedSingleGherkin)} className="text-gray-400 hover:text-white transition-colors">
-                                            {copied ? <ClipboardCheckIcon className="w-4 h-4 text-green-400" /> : <ClipboardIcon className="w-4 h-4" />}
-                                         </button>
-                                    </div>
-                                    <div className="bg-gray-900/50 p-3 rounded-md max-h-60 overflow-y-auto">
-                                        <pre className="text-sm text-gray-300 whitespace-pre-wrap font-mono"><GherkinContent text={generatedSingleGherkin} /></pre>
-                                    </div>
-                                    <button onClick={handleCompleteBddPlanning} className="w-full mt-3 bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded transition">
-                                        Completar e Voltar
-                                    </button>
-                                </div>
-                            )}
-
-                            {generatedGroupGherkin && planningMode === 'bdd' && (
-                                <div className="pt-4 border-t border-gray-700">
-                                    <h4 className="text-md font-semibold text-purple-300 mb-2">Cenários Gerados</h4>
-                                     <div className="bg-gray-900/50 p-3 rounded-md max-h-60 overflow-y-auto space-y-4">
-                                        {generatedGroupGherkin.map(g => (
-                                            <details key={g.title} className="bg-gray-700/50 p-2 rounded">
-                                                <summary className="font-semibold cursor-pointer text-sm">{g.title}</summary>
-                                                <pre className="text-xs text-gray-300 whitespace-pre-wrap font-mono mt-2 pl-2 border-l-2 border-gray-500"><GherkinContent text={g.gherkin} /></pre>
-                                            </details>
-                                        ))}
-                                    </div>
-                                    <button onClick={handleCompleteBddPlanning} className="w-full mt-3 bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded transition">
-                                        Completar e Voltar
-                                    </button>
-                                </div>
-                            )}
-
-                            {testScenarios && (
-                                <div className="pt-4 border-t border-gray-700">
-                                    <div className="flex justify-between items-center mb-2">
-                                         <h4 className="text-md font-semibold text-purple-300">Cenários de Teste</h4>
-                                         <button onClick={() => handleCopy(testScenarios)} className="text-gray-400 hover:text-white transition-colors">
-                                            {copied ? <ClipboardCheckIcon className="w-4 h-4 text-green-400" /> : <ClipboardIcon className="w-4 h-4" />}
-                                         </button>
-                                    </div>
-                                    <div className="bg-gray-900/50 p-3 rounded-md max-h-48 overflow-y-auto">
-                                        <pre className="text-sm text-gray-300 whitespace-pre-wrap font-sans">{testScenarios}</pre>
-                                    </div>
-                                </div>
-                            )}
-                        </div>
-                     </div>
-                );
+            case 'workspace':
+                return <WorkspaceView
+                    planningMode={planningMode}
+                    originalStory={originalStory}
+                    setOriginalStory={(story) => setOriginalStory(story)}
+                    featureDescription={featureDescription}
+                    setFeatureDescription={setFeatureDescription}
+                    bddScenarios={bddScenarios}
+                    conversation={conversation}
+                    activePersonas={activePersonas}
+                    satisfiedPersonas={satisfiedPersonas}
+                    handleStartPlanning={handleStartPlanning}
+                    handleAnswerSubmit={handleAnswerSubmit}
+                    handleSkip={handleSkip}
+                    currentAnswer={currentAnswer}
+                    setCurrentAnswer={setCurrentAnswer}
+                    isAnswering={isAnswering}
+                    handleGetSuggestion={handleGetSuggestion}
+                    suggestedStory={suggestedStory}
+                    isSuggesting={isSuggesting}
+                    refinementPrompt={refinementPrompt}
+                    setRefinementPrompt={setRefinementPrompt}
+                    handleGenerateScenarios={handleGenerateScenarios}
+                    testScenarios={testScenarios}
+                    isGeneratingScenarios={isGeneratingScenarios}
+                    handleAnalyzeComplexity={handleAnalyzeComplexity}
+                    complexityAnalysis={complexityAnalysis}
+                    isAnalyzingComplexity={isAnalyzingComplexity}
+                    handleGeneratePrototype={handleGeneratePrototype}
+                    isGeneratingPrototype={isGeneratingPrototype}
+                    handleGenerateGherkin={handleGenerateGherkin}
+                    generatedSingleGherkin={generatedSingleGherkin}
+                    isGeneratingGherkin={isGeneratingGherkin}
+                    handleCompleteBddPlanning={handleCompleteBddPlanning}
+                    handleCopy={handleCopy}
+                    copiedTurnId={copiedTurnId}
+                    suggestionForReview={suggestionForReview}
+                    handleAcceptSuggestion={handleAcceptSuggestion}
+                    handleDiscardSuggestion={handleDiscardSuggestion}
+                    handleRefineSuggestionInReview={handleRefineSuggestionInReview}
+                    isRefining={isRefining}
+                />;
             case 'story_selection':
                 return <StorySelectionScreen stories={splitStories} onSelectStory={handleSelectSplitStory} />;
             default:

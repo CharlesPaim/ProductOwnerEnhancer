@@ -12,6 +12,7 @@ export interface ConversationTurn {
   persona: Persona;
   question: string;
   answer?: string;
+  isSystemMessage?: boolean;
 }
 
 export interface ParsedStory {
