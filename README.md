@@ -32,6 +32,7 @@ Uma aplicação com IA para ajudar Product Owners a melhorar a qualidade das his
 
 - **Sugestão do PO Sênior:** Peça uma nova versão da história com base nas suas respostas.
 - **Modificações Contínuas:** Dê instruções para a IA refinar a sugestão quantas vezes forem necessárias.
+- **Comparação Visual (Diff):** Visualize as diferenças exatas entre a versão atual e a sugestão da IA para tomar decisões mais informadas.
 
 ### Ferramentas de Validação e Suporte
 
@@ -43,5 +44,5 @@ Uma aplicação com IA para ajudar Product Owners a melhorar a qualidade das his
 ### Utilidades
 
 - **Acesso Rápido:** Visualize a história original, o cenário atual ou a feature BDD em um modal a qualquer momento.
-- **Copiar para a Área de Transferência:** Copie facilmente a história original, perguntas, sugestões, testes e protótipos.
+- **Exportação de Artefatos:** Copie facilmente qualquer texto gerado ou faça o download de artefatos como protótipos (`.html`), checklists (`.txt`) e definições de steps (código-fonte).
 - **Navegação Inteligente:** Reinicie o processo ou volte para a seleção de histórias quebradas com um botão que se adapta ao contexto.
