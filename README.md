@@ -46,3 +46,31 @@ Uma aplicação com IA para ajudar Product Owners a melhorar a qualidade das his
 - **Acesso Rápido:** Visualize a história original, o cenário atual ou a feature BDD em um modal a qualquer momento.
 - **Exportação de Artefatos:** Copie facilmente qualquer texto gerado ou faça o download de artefatos como protótipos (`.html`), checklists (`.txt`) e definições de steps (código-fonte).
 - **Navegação Inteligente:** Reinicie o processo ou volte para a seleção de histórias quebradas com um botão que se adapta ao contexto.
+
+## Informações Técnicas
+
+Esta seção detalha a stack tecnológica, a arquitetura e outras decisões técnicas relevantes do projeto.
+
+### Stack Tecnológica
+
+*   **Linguagem Principal:** TypeScript
+*   **Framework de UI:** React
+*   **API de IA:** Google Gemini API (`@google/genai`)
+*   **Estilização:** Tailwind CSS (utilizado via CDN)
+*   **Ambiente:** A aplicação é um Single-Page Application (SPA) moderno, executado diretamente no navegador com suporte a módulos ES6, utilizando `importmap` para gerenciamento de dependências.
+
+### Arquitetura
+
+A aplicação segue uma arquitetura de SPA baseada em componentes, com uma estrutura clara e modular.
+
+*   **Componente Principal (`App.tsx`):** Atua como o orquestrador central, gerenciando o estado global da aplicação, a lógica de navegação e a renderização dos diferentes módulos (telas).
+*   **Máquina de Estados Simples:** A navegação e o controle de fluxo são gerenciados por uma máquina de estados (`appState`), que determina qual tela ou componente é exibido ao usuário. Isso permite a criação de múltiplos fluxos de trabalho complexos (refinamento de história, criação de BDD, análise de transcrição) de forma organizada.
+*   **Separação de Serviços (`geminiService.ts`):** Toda a comunicação com a API do Google Gemini é abstraída em um único serviço. Isso centraliza a lógica de IA, facilita a manutenção e desacopla a camada de visão da lógica de negócios. O serviço faz uso extensivo do modo JSON da API Gemini, utilizando `responseSchema` para garantir respostas estruturadas e previsíveis.
+*   **Componentização:** A UI é construída com componentes reutilizáveis (ícones, modais, etc.), localizados no diretório `components`, promovendo consistência visual e reaproveitamento de código.
+*   **Gerenciamento de Estado:** O estado é gerenciado localmente no componente `App.tsx` através dos hooks do React (`useState`, `useCallback`). Para esta aplicação, essa abordagem centralizada é suficiente e evita a complexidade de bibliotecas de gerenciamento de estado externas.
+
+### Destaques da Implementação
+
+*   **Cache em Memória:** Para otimizar o desempenho e reduzir custos de API, a aplicação implementa um mecanismo simples de cache em memória para operações que podem ser repetidas com os mesmos dados de entrada dentro de uma sessão (ex: análise de complexidade, geração de cenários de teste).
+*   **Fluxos de Trabalho Modulares:** A arquitetura baseada em estados permite que cada funcionalidade principal (Refinar, Gerar, BDD, etc.) opere como um módulo semi-independente, facilitando a adição de novos fluxos no futuro.
+*   **Tipagem Forte:** O uso de TypeScript e a centralização de tipos no arquivo `types.ts` garantem a segurança e a clareza dos dados que transitam pela aplicação, desde a UI até o serviço da API.
