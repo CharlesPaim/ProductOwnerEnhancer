@@ -1,7 +1,6 @@
 
-
 import { GoogleGenAI, GenerateContentResponse, Type, Part } from "@google/genai";
-import { Persona, ParsedStory, ConversationTurn, InitialQuestions, ComplexityAnalysisResult, SplitStory, BddFeatureSuggestion, GherkinScenario } from '../types';
+import { Persona, ParsedStory, ConversationTurn, InitialQuestions, ComplexityAnalysisResult, SplitStory, BddFeatureSuggestion, GherkinScenario, QuestionResponse } from '../types';
 
 if (!process.env.API_KEY) {
     console.error("API_KEY environment variable not set.");
@@ -146,7 +145,7 @@ export const generateInitialQuestions = async (story: ParsedStory, personas: Per
 };
 
 
-export const generateFollowUpQuestion = async (story: ParsedStory, conversationHistory: ConversationTurn[], nextPersona: Persona): Promise<string> => {
+export const generateFollowUpQuestion = async (story: ParsedStory, conversationHistory: ConversationTurn[], nextPersona: Persona): Promise<QuestionResponse> => {
     try {
         const history = conversationHistory.map(turn => 
             `Pergunta de ${turn.persona}: ${turn.question}\nResposta do Usuário: ${turn.answer || 'Pulado'}`
@@ -172,22 +171,76 @@ export const generateFollowUpQuestion = async (story: ParsedStory, conversationH
         **Sua Tarefa:**
         Com base na sua diretriz, na história e na conversa, avalie o estado atual.
 
-        1.  **Verifique a Satisfação:** Analise a conversa. Se você acredita que suas principais preocupações como um(a) **${nextPersona}** já foram suficientemente abordadas pelas respostas do usuário (mesmo que as respostas tenham sido para outras personas), então sua tarefa está concluída.
+        1.  **Verifique a Satisfação:** Analise a conversa. Se você acredita que suas principais preocupações como um(a) **${nextPersona}** já foram suficientemente abordadas pelas respostas do usuário (mesmo que as respostas tenham sido para outras personas), então defina "isConsensus" como true.
         2.  **Formule a Resposta:**
-            *   **Se sua tarefa estiver concluída**, retorne APENAS a frase \`CONSENSO: ${nextPersona}\`. Não adicione nenhuma outra palavra ou pontuação.
-            *   **Caso contrário**, formule sua próxima pergunta de acompanhamento. A pergunta deve ser concisa, relevante e evitar tópicos já discutidos. Retorne apenas a pergunta como uma única string, em português do Brasil.
+            *   **Se "isConsensus" for true**: O campo "question" deve ser APENAS a frase "CONSENSO: ${nextPersona}". O campo "educationalInsight" deve explicar brevemente por que você está satisfeito.
+            *   **Caso contrário**: Formule sua próxima pergunta de acompanhamento no campo "question". A pergunta deve ser concisa e relevante.
+            *   **Insight Educacional (Coach Mode)**: No campo "educationalInsight", explique PARA O PRODUCT OWNER JUNIOR *por que* essa pergunta é importante. Ex: "Perguntar sobre o volume de dados nos ajuda a prever problemas de performance no futuro." ou "Definir mensagens de erro agora evita retrabalho de UI depois."
+
+        Retorne um objeto JSON válido.
         `;
+
+        const responseSchema = {
+            type: Type.OBJECT,
+            properties: {
+                question: { type: Type.STRING },
+                educationalInsight: { type: Type.STRING, description: "Uma explicação curta para um PO Junior sobre por que esta pergunta é importante." },
+                isConsensus: { type: Type.BOOLEAN }
+            },
+            required: ["question", "educationalInsight", "isConsensus"]
+        };
 
         const response = await ai.models.generateContent({
             model: model,
             contents: prompt,
+             config: {
+                responseMimeType: "application/json",
+                responseSchema,
+            },
         });
 
-        return response.text.trim();
+        return JSON.parse(response.text) as QuestionResponse;
 
     } catch (error) {
         console.error("Error generating follow-up question:", error);
         throw new Error("Falha ao gerar uma pergunta de acompanhamento.");
+    }
+};
+
+export const generateConversationInsights = async (conversationHistory: ConversationTurn[]): Promise<string> => {
+    try {
+         const history = conversationHistory
+            .filter(turn => turn.answer && turn.answer.trim() !== 'Pulado')
+            .map(turn => `Pergunta (${turn.persona}): ${turn.question}\nResposta: ${turn.answer}`)
+            .join('\n\n');
+
+        if (!history) return "Ainda não há informações suficientes para gerar insights.";
+
+        const prompt = `
+        Você é um Assistente de Product Owner. Sua tarefa é resumir os "Pontos de Atenção" e decisões tomadas até agora nesta conversa de refinamento.
+        
+        **Histórico da Conversa:**
+        ---
+        ${history}
+        ---
+
+        Gere uma lista em tópicos (markdown) com:
+        1. Requisitos Chave identificados/decididos.
+        2. Riscos Técnicos ou de Negócio levantados.
+        3. Perguntas em aberto (se houver, baseado em respostas vagas).
+
+        Seja conciso. Atualize este resumo com base nas novas informações. Use português do Brasil.
+        `;
+
+        const response = await ai.models.generateContent({
+            model: model,
+            contents: prompt
+        });
+
+        return response.text.trim();
+    } catch (error) {
+        console.error("Error generating conversation insights:", error);
+        return "Não foi possível gerar insights no momento.";
     }
 };
 
@@ -647,7 +700,7 @@ export const generateInitialScenarioOutline = async (featureDescription: string,
     }
 };
 
-export const generateBddFollowUpQuestion = async (featureDescription: string, scenarioTitle: string, conversationHistory: ConversationTurn[], nextPersona: Persona): Promise<string> => {
+export const generateBddFollowUpQuestion = async (featureDescription: string, scenarioTitle: string, conversationHistory: ConversationTurn[], nextPersona: Persona): Promise<QuestionResponse> => {
     try {
         const history = conversationHistory.map(turn =>
             `Pergunta de ${turn.persona}: ${turn.question}\nResposta do Usuário: ${turn.answer || 'Pulado'}`
@@ -672,18 +725,35 @@ export const generateBddFollowUpQuestion = async (featureDescription: string, sc
         **Sua Tarefa:**
         Com base na sua diretriz, na funcionalidade, no cenário e na conversa, avalie o estado atual.
 
-        1.  **Verifique a Satisfação:** Analise a conversa. Se você acredita que os detalhes necessários para escrever o cenário Gherkin já foram obtidos, sua tarefa está concluída.
+        1.  **Verifique a Satisfação:** Analise a conversa. Se você acredita que os detalhes necessários para escrever o cenário Gherkin já foram obtidos, defina "isConsensus" como true.
         2.  **Formule a Resposta:**
-            *   **Se sua tarefa estiver concluída**, retorne APENAS a frase \`CONSENSO: ${nextPersona}\`.
-            *   **Caso contrário**, formule sua próxima pergunta para esclarecer um aspecto do comportamento esperado. Retorne apenas a pergunta.
+            *   **Se "isConsensus" for true**: O campo "question" deve ser APENAS a frase "CONSENSO: ${nextPersona}".
+            *   **Caso contrário**: Formule sua próxima pergunta para esclarecer um aspecto do comportamento esperado no campo "question".
+            *   **Insight Educacional (Coach Mode)**: No campo "educationalInsight", explique PARA O PRODUCT OWNER JUNIOR *por que* essa pergunta é importante para a criação de um bom cenário BDD.
+
+        Retorne um objeto JSON válido.
         `;
+
+        const responseSchema = {
+            type: Type.OBJECT,
+            properties: {
+                question: { type: Type.STRING },
+                educationalInsight: { type: Type.STRING },
+                isConsensus: { type: Type.BOOLEAN }
+            },
+            required: ["question", "educationalInsight", "isConsensus"]
+        };
 
         const response = await ai.models.generateContent({
             model: model,
             contents: prompt,
+             config: {
+                responseMimeType: "application/json",
+                responseSchema,
+            },
         });
 
-        return response.text.trim();
+        return JSON.parse(response.text) as QuestionResponse;
 
     } catch (error) {
         console.error("Error generating BDD follow-up question:", error);
@@ -691,7 +761,7 @@ export const generateBddFollowUpQuestion = async (featureDescription: string, sc
     }
 };
 
-export const generateBddFollowUpQuestionForGroup = async (featureDescription: string, scenarioTitles: string[], conversationHistory: ConversationTurn[], nextPersona: Persona): Promise<string> => {
+export const generateBddFollowUpQuestionForGroup = async (featureDescription: string, scenarioTitles: string[], conversationHistory: ConversationTurn[], nextPersona: Persona): Promise<QuestionResponse> => {
     try {
         const history = conversationHistory.map(turn =>
             `Pergunta de ${turn.persona}: ${turn.question}\nResposta do Usuário: ${turn.answer || 'Pulado'}`
@@ -718,18 +788,35 @@ export const generateBddFollowUpQuestionForGroup = async (featureDescription: st
         **Sua Tarefa:**
         Com base na sua diretriz, na funcionalidade, nos cenários e na conversa, avalie o estado atual.
 
-        1.  **Verifique a Satisfação:** Analise a conversa. Se você acredita que as informações para todos os cenários estão claras, sua tarefa está concluída.
+        1.  **Verifique a Satisfação:** Analise a conversa. Se você acredita que as informações para todos os cenários estão claras, defina "isConsensus" como true.
         2.  **Formule a Resposta:**
-            *   **Se sua tarefa estiver concluída**, retorne APENAS a frase \`CONSENSO: ${nextPersona}\`.
-            *   **Caso contrário**, identifique se ainda há pontos em comum a serem esclarecidos. Se houver, faça uma pergunta sobre isso. Se não, faça uma pergunta focada nas *diferenças* entre os cenários. Retorne apenas a pergunta.
+            *   **Se "isConsensus" for true**: O campo "question" deve ser APENAS a frase "CONSENSO: ${nextPersona}".
+            *   **Caso contrário**: Identifique se ainda há pontos em comum a serem esclarecidos. Se houver, faça uma pergunta sobre isso. Se não, faça uma pergunta focada nas *diferenças* entre os cenários. Coloque no campo "question".
+            *   **Insight Educacional (Coach Mode)**: No campo "educationalInsight", explique PARA O PRODUCT OWNER JUNIOR o valor desta pergunta.
+
+        Retorne um objeto JSON válido.
         `;
+
+        const responseSchema = {
+            type: Type.OBJECT,
+            properties: {
+                question: { type: Type.STRING },
+                educationalInsight: { type: Type.STRING },
+                isConsensus: { type: Type.BOOLEAN }
+            },
+            required: ["question", "educationalInsight", "isConsensus"]
+        };
 
         const response = await ai.models.generateContent({
             model: model,
             contents: prompt,
+            config: {
+                responseMimeType: "application/json",
+                responseSchema,
+            },
         });
 
-        return response.text.trim();
+        return JSON.parse(response.text) as QuestionResponse;
 
     } catch (error) {
         console.error("Error generating BDD group follow-up question:", error);
@@ -1154,5 +1241,54 @@ export const analyzeHomologationTranscript = async (transcript: string): Promise
     } catch (error) {
         console.error("Error analyzing homologation transcript:", error);
         throw new Error("Falha ao analisar a transcrição de homologação.");
+    }
+};
+
+export const generateUserFlowDiagram = async (story: ParsedStory): Promise<string> => {
+    try {
+        const prompt = `
+        Você é um Engenheiro de Software especialista em criar diagramas de fluxo de usuário claros e didáticos.
+        Sua tarefa é gerar o código fonte para um diagrama **Mermaid.js** que represente o fluxo do usuário descrito na seguinte história.
+
+        **História de Usuário:**
+        ---
+        Título: ${story.title}
+        Descrição:
+        ${story.description}
+        ---
+
+        **Instruções de Geração (Mermaid.js):**
+        1. Use o tipo de gráfico \`graph TD\` (Top-Down).
+        2. Represente o "Caminho Feliz" (Happy Path) como o fluxo principal.
+        3. Inclua nós de decisão (formato losango \`{?}\`) para representar escolhas ou validações (ex: Login Válido?).
+        4. Use nós arredondados \`(...)\` para o Início e Fim do fluxo.
+        5. Use nós retangulares \`[...]\` para ações do usuário ou do sistema.
+        6. Use setas com texto para indicar o resultado das decisões (ex: \`-->|Sim|\` ou \`-->|Não|\`).
+        7. **IMPORTANTE:** O código deve ser APENAS o texto válido do diagrama Mermaid, sem blocos de código markdown (\`\`\`).
+
+        **Exemplo de saída esperada:**
+        graph TD
+            A(Início) --> B[Usuário acessa Login]
+            B --> C{Dados Válidos?}
+            C -->|Sim| D[Redirecionar para Home]
+            C -->|Não| E[Exibir Erro]
+            D --> F(Fim)
+
+        Gere o código para a história fornecida.
+        `;
+
+        const response = await ai.models.generateContent({
+            model: model,
+            contents: prompt,
+        });
+
+        let code = response.text.trim();
+        // Remove markdown code blocks if present, just in case the model ignores the instruction
+        code = code.replace(/^```(?:\w+)?\s*/, '').replace(/\s*```$/, '');
+        return code.trim();
+
+    } catch (error) {
+        console.error("Error generating user flow diagram:", error);
+        throw new Error("Falha ao gerar o diagrama de fluxo do usuário.");
     }
 };

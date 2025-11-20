@@ -1,15 +1,17 @@
+
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { Persona, ParsedStory, ConversationTurn, ComplexityAnalysisResult } from '../types';
-import { personaDetails, UserIcon, SparklesIcon, ClipboardIcon, ClipboardCheckIcon, ClipboardListIcon, ScaleIcon, CodeIcon, DocumentTextIcon, CheckCircleIcon, InformationCircleIcon, SwitchHorizontalIcon, XIcon } from './icons';
+import { personaDetails, UserIcon, SparklesIcon, ClipboardIcon, ClipboardCheckIcon, ClipboardListIcon, ScaleIcon, CodeIcon, DocumentTextIcon, CheckCircleIcon, InformationCircleIcon, SwitchHorizontalIcon, XIcon, LightBulbIcon, FlowIcon, ShareIcon, BookOpenIcon } from './icons';
 import WizardStepper from './WizardStepper';
+import DiagramViewer from './DiagramViewer';
 
 type WorkspaceViewProps = {
-    // State
     planningMode: 'story' | 'bdd';
     originalStory: ParsedStory | null;
     featureDescription: string;
     bddScenarios: { id: number; title: string; gherkin: string | null; completed: boolean; type: 'scenario' | 'outline' }[];
     conversation: ConversationTurn[];
+    conversationInsights: string | null;
     activePersonas: Persona[];
     satisfiedPersonas: Persona[];
     suggestedStory: string | null;
@@ -26,8 +28,9 @@ type WorkspaceViewProps = {
     generatedSingleGherkin: string | null;
     isGeneratingGherkin: boolean;
     suggestionForReview: string | null;
+    userFlowDiagram?: string | null;
+    isGeneratingDiagram?: boolean;
 
-    // Handlers
     setOriginalStory: (story: ParsedStory) => void;
     setFeatureDescription: (desc: string) => void;
     handleStartPlanning: (personas: Persona[]) => void;
@@ -46,6 +49,8 @@ type WorkspaceViewProps = {
     handleAcceptSuggestion: (newStory: string) => void;
     handleDiscardSuggestion: () => void;
     handleRefineSuggestionInReview: (currentSuggestion: string, prompt: string) => Promise<void>;
+    handleGenerateDiagram?: () => void;
+    onOpenExport?: () => void;
 };
 
 
@@ -151,6 +156,119 @@ const PersonaStatusBar = ({ activePersonas, satisfiedPersonas }: { activePersona
     );
 };
 
+const PersonaConfiguration = ({ onStart }: { onStart: (personas: Persona[]) => void }) => {
+    const [selected, setSelected] = useState<Persona[]>([Persona.Dev, Persona.QA]);
+    
+    const togglePersona = (p: Persona) => {
+        if (selected.includes(p)) {
+            setSelected(selected.filter(x => x !== p));
+        } else {
+            setSelected([...selected, p]);
+        }
+    };
+
+    return (
+        <div className="flex flex-col items-center justify-center h-full p-6">
+            <h3 className="text-xl font-semibold text-purple-300 mb-6">Quem deve participar do refinamento?</h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8 w-full max-w-2xl">
+                {Object.values(Persona).map((p) => (
+                    <button
+                        key={p}
+                        onClick={() => togglePersona(p)}
+                        className={`flex items-center p-4 rounded-lg border transition-all ${
+                            selected.includes(p) 
+                                ? 'bg-purple-900/40 border-purple-500 shadow-lg shadow-purple-900/20' 
+                                : 'bg-gray-800 border-gray-700 hover:border-gray-600'
+                        }`}
+                    >
+                        <div className={`w-6 h-6 rounded border flex items-center justify-center mr-3 ${
+                            selected.includes(p) ? 'bg-purple-500 border-purple-500 text-white' : 'border-gray-500'
+                        }`}>
+                            {selected.includes(p) && <CheckCircleIcon className="w-4 h-4" />}
+                        </div>
+                        <span className={selected.includes(p) ? 'text-white font-medium' : 'text-gray-400'}>{p}</span>
+                    </button>
+                ))}
+            </div>
+            <button
+                onClick={() => onStart(selected)}
+                disabled={selected.length === 0}
+                className="bg-gradient-to-r from-purple-600 to-cyan-600 hover:from-purple-700 hover:to-cyan-700 text-white font-bold py-3 px-8 rounded-full shadow-lg transform transition hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+                Iniciar Sessão de Planejamento
+            </button>
+        </div>
+    );
+};
+
+const SuggestionReviewer = ({ suggestion, currentStoryText, onAccept, onDiscard, onRefine, isRefining }: any) => {
+    const [mode, setMode] = useState<'preview' | 'diff'>('preview');
+    const [refineInput, setRefineInput] = useState('');
+
+    const handleRefine = () => {
+        if(refineInput.trim()) { 
+            onRefine(suggestion, refineInput); 
+            setRefineInput(''); 
+        }
+    };
+
+    return (
+        <div className="flex flex-col h-full bg-gray-900 rounded-lg overflow-hidden border border-gray-700">
+            <div className="flex justify-between items-center p-4 bg-gray-800 border-b border-gray-700">
+                <h3 className="font-semibold text-purple-300 flex items-center gap-2">
+                    <SparklesIcon className="w-5 h-5" />
+                    Sugestão de Nova Versão
+                </h3>
+                <div className="flex bg-gray-900 rounded-lg p-1">
+                    <button onClick={() => setMode('preview')} className={`px-3 py-1 text-sm rounded-md transition ${mode === 'preview' ? 'bg-gray-700 text-white' : 'text-gray-400'}`}>Preview</button>
+                    <button onClick={() => setMode('diff')} className={`px-3 py-1 text-sm rounded-md transition ${mode === 'diff' ? 'bg-gray-700 text-white' : 'text-gray-400'}`}>Comparar</button>
+                </div>
+            </div>
+            
+            <div className="flex-grow overflow-auto p-4">
+                {mode === 'preview' ? (
+                    <div className="prose prose-invert max-w-none whitespace-pre-wrap text-sm text-gray-300">
+                        {suggestion}
+                    </div>
+                ) : (
+                     <div className="text-sm font-mono">
+                        {generateDiff(currentStoryText, suggestion).map((line, i) => (
+                            <div key={i} className={`${line.type === 'added' ? 'bg-green-900/30 text-green-300' : line.type === 'removed' ? 'bg-red-900/30 text-red-300' : 'text-gray-500'} px-2 py-0.5`}>
+                                <span className="inline-block w-4 select-none opacity-50">{line.type === 'added' ? '+' : line.type === 'removed' ? '-' : ' '}</span>
+                                {line.value}
+                            </div>
+                        ))}
+                     </div>
+                )}
+            </div>
+
+            <div className="p-4 bg-gray-800 border-t border-gray-700 space-y-4">
+                <div className="flex gap-2">
+                    <input 
+                        type="text" 
+                        value={refineInput}
+                        onChange={(e) => setRefineInput(e.target.value)}
+                        placeholder="Ex: Adicione critério de performance, remova a parte de login..."
+                        className="flex-grow bg-gray-900 border border-gray-600 rounded-md px-3 py-2 text-sm text-gray-300 focus:ring-2 focus:ring-purple-500 outline-none"
+                        onKeyDown={(e) => e.key === 'Enter' && handleRefine()}
+                    />
+                    <button 
+                        onClick={handleRefine}
+                        disabled={isRefining || !refineInput.trim()}
+                        className="bg-gray-700 hover:bg-gray-600 text-white px-4 py-2 rounded-md text-sm font-medium transition disabled:opacity-50"
+                    >
+                        {isRefining ? 'Refinando...' : 'Refinar'}
+                    </button>
+                </div>
+                <div className="flex justify-end gap-3">
+                    <button onClick={onDiscard} className="px-4 py-2 text-gray-300 hover:text-white hover:bg-gray-700 rounded-md text-sm transition">Descartar</button>
+                    <button onClick={() => onAccept(suggestion)} className="bg-green-600 hover:bg-green-700 text-white px-6 py-2 rounded-md text-sm font-bold transition shadow-lg">Aceitar Nova Versão</button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
 
 const AIAssistantTab = (props: WorkspaceViewProps) => {
     const {
@@ -183,6 +301,7 @@ const AIAssistantTab = (props: WorkspaceViewProps) => {
     
     const conversationEndRef = useRef<HTMLDivElement>(null);
     const [isConfiguring, setIsConfiguring] = useState(true);
+    const [visibleInsights, setVisibleInsights] = useState<Record<number, boolean>>({});
 
     useEffect(() => {
         if (conversation.length > 0) {
@@ -195,6 +314,10 @@ const AIAssistantTab = (props: WorkspaceViewProps) => {
     useEffect(() => {
         conversationEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }, [conversation]);
+
+    const toggleInsight = (id: number) => {
+        setVisibleInsights(prev => ({ ...prev, [id]: !prev[id] }));
+    };
 
     const currentTurn = conversation[conversation.length - 1];
     const allSatisfied = activePersonas.length > 0 && activePersonas.every(p => satisfiedPersonas.includes(p));
@@ -227,340 +350,417 @@ const AIAssistantTab = (props: WorkspaceViewProps) => {
                             </div>
                         );
                     }
+
+                    const borderColorClass = personaDetails[turn.persona]?.color 
+                        ? `border-l-4 ${personaDetails[turn.persona].color.replace('border-', 'border-l-')}`
+                        : 'border-l-4 border-gray-700';
+
                     return (
                         <div key={turn.id}>
                             {/* Persona Question */}
                             <div className="flex items-start gap-4">
                                 <PersonaAvatar persona={turn.persona} />
-                                <div className="flex-grow bg-gray-900/70 p-4 rounded-lg rounded-tl-none relative">
+                                <div className={`flex-grow bg-gray-900/70 p-4 rounded-lg rounded-tl-none relative ${borderColorClass}`}>
                                     <div className="flex justify-between items-center">
                                         <p className="font-bold text-cyan-300">{turn.persona}</p>
                                         <button onClick={() => handleCopy(turn.question, turn.id)} className="text-gray-400 hover:text-white transition-colors">
                                             {copiedTurnId === turn.id ? <ClipboardCheckIcon className="w-4 h-4 text-green-400" /> : <ClipboardIcon className="w-4 h-4" />}
                                         </button>
                                     </div>
-                                    <p className="mt-2 text-gray-300 whitespace-pre-wrap">{turn.question}</p>
+                                    <p className="text-gray-200 mt-2 text-sm whitespace-pre-wrap">{turn.question}</p>
+                                    
+                                    {turn.educationalInsight && (
+                                        <div className="mt-3">
+                                            <button 
+                                                onClick={() => toggleInsight(turn.id)}
+                                                className="text-xs flex items-center gap-1 text-purple-400 hover:text-purple-300 transition-colors"
+                                            >
+                                                <InformationCircleIcon className="w-4 h-4" />
+                                                {visibleInsights[turn.id] ? "Ocultar dica de Coach" : "Ver dica de Coach"}
+                                            </button>
+                                            {visibleInsights[turn.id] && (
+                                                <div className="mt-2 p-3 bg-purple-900/20 rounded border border-purple-500/30 text-xs text-purple-200 animate-fade-in-up">
+                                                    <span className="font-bold">Insight:</span> {turn.educationalInsight}
+                                                </div>
+                                            )}
+                                        </div>
+                                    )}
                                 </div>
                             </div>
-                            
+
                             {/* User Answer */}
                             {turn.answer && (
-                                <div className="flex items-start gap-4 mt-4 justify-end">
-                                     <div className="flex-grow bg-purple-900/50 p-4 rounded-lg rounded-br-none max-w-[85%]">
-                                        <p className="font-bold text-purple-300">Sua Resposta</p>
-                                        <p className="mt-2 text-gray-300 whitespace-pre-wrap">{turn.answer}</p>
+                                <div className="flex items-start gap-4 mt-4 flex-row-reverse">
+                                    <div className="flex-shrink-0 w-10 h-10 rounded-full bg-gray-700 flex items-center justify-center border-2 border-gray-600">
+                                        <UserIcon className="w-5 h-5 text-gray-400" />
                                     </div>
-                                    <div className="flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center border-2 border-purple-500 bg-gray-800">
-                                        <UserIcon className="w-5 h-5 text-gray-300" />
+                                    <div className="flex-grow bg-gray-800 p-4 rounded-lg rounded-tr-none border-l-4 border-gray-600">
+                                        <p className="font-bold text-gray-400 text-right">Você (PO)</p>
+                                        <p className="text-gray-300 mt-2 text-sm whitespace-pre-wrap">{turn.answer}</p>
                                     </div>
                                 </div>
                             )}
-
-                            {/* Divider */}
-                            {index < conversation.length - 1 && !conversation[index+1].isSystemMessage && <hr className="border-gray-700 my-6"/>}
                         </div>
-                    )
-                })}
-                <div ref={conversationEndRef}></div>
-            </div>
-            
-            <div className="mt-4 pt-4 border-t border-gray-700 space-y-4">
-                {(!currentTurn.answer && !currentTurn.isSystemMessage) ? (
-                     <div>
-                        <h3 className="text-lg font-semibold text-purple-300 mb-3">Sua Resposta</h3>
-                        <textarea
-                            value={currentAnswer}
-                            onChange={(e) => setCurrentAnswer(e.target.value)}
-                            rows={4}
-                            className="w-full p-3 bg-gray-900 border border-gray-700 rounded-md focus:ring-2 focus:ring-purple-500 transition text-gray-300 resize-y"
-                            placeholder={`Responda como se estivesse falando com o(a) ${currentTurn.persona}...`}
-                            disabled={isAnswering}
-                        />
-                        <div className="flex justify-end gap-4 mt-4">
-                            <button onClick={handleSkip} disabled={isAnswering} className="bg-gray-600 hover:bg-gray-700 text-white font-bold py-2 px-6 rounded transition disabled:opacity-50">Pular</button>
-                            <button onClick={handleAnswerSubmit} disabled={!currentAnswer.trim() || isAnswering} className="bg-purple-600 hover:bg-purple-700 text-white font-bold py-2 px-6 rounded transition disabled:bg-gray-500">
-                                {isAnswering ? 'Aguarde...' : 'Enviar Resposta'}
-                            </button>
-                        </div>
-                    </div>
-                ) : planningMode === 'bdd' ? (
-                     <div>
-                        <button onClick={handleGenerateGherkin} disabled={isGeneratingGherkin || conversation.length < 1 || allSatisfied} className="w-full flex items-center justify-center gap-2 bg-gray-700 hover:bg-gray-600 disabled:opacity-50 text-white font-bold py-2 px-4 rounded transition">
-                            <DocumentTextIcon className="w-5 h-5" />
-                            {isGeneratingGherkin ? 'Gerando...' : 'Gerar Gherkin'}
-                        </button>
-                        {generatedSingleGherkin && (
-                            <div className="mt-4">
-                                <button onClick={handleCompleteBddPlanning} className="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded transition">
-                                    Completar e Voltar para Cenários
-                                </button>
-                            </div>
-                        )}
-                     </div>
-                ) : null }
-                 {planningMode === 'story' && (
-                    <button onClick={handleGetSuggestion} disabled={isSuggesting || conversation.length < 1 || !!suggestionForReview || !allSatisfied} className="w-full flex items-center justify-center gap-2 bg-gray-700 hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold py-2 px-4 rounded transition" title={!allSatisfied ? "Aguarde o consenso de todas as personas" : ""}>
-                        <SparklesIcon className="w-5 h-5" />
-                        {isSuggesting ? 'Sugerindo...' : 'Sugerir Nova Versão da História'}
-                    </button>
-                 )}
-            </div>
-        </div>
-    )
-};
-
-const PersonaConfiguration = ({ onStart }: { onStart: (personas: Persona[]) => void; }) => {
-    const allPersonas = [Persona.Dev, Persona.QA, Persona.Architect, Persona.UX, Persona.DevOps];
-    const [selected, setSelected] = useState<Persona[]>([Persona.Dev, Persona.QA, Persona.Architect]);
-
-    const handleSelect = (persona: Persona) => {
-        setSelected(prev => 
-            prev.includes(persona) ? prev.filter(p => p !== persona) : [...prev, persona]
-        );
-    };
-
-    return (
-        <div>
-            <h3 className="text-lg font-semibold text-cyan-300 mb-2">Configurar Sessão de IA</h3>
-            <p className="text-gray-400 mb-4 text-sm">Selecione as personas para iniciar a sessão de planejamento simulada.</p>
-            <div className="space-y-2 mb-4">
-                {allPersonas.map(p => {
-                    const details = personaDetails[p];
-                    const isSelected = selected.includes(p);
-                    return (
-                        <label key={p} className={`flex items-center p-2 rounded-md cursor-pointer transition-colors ${isSelected ? 'bg-gray-700' : 'bg-gray-900/50 hover:bg-gray-700/50'}`}>
-                            <input type="checkbox" checked={isSelected} onChange={() => handleSelect(p)} className="h-4 w-4 rounded bg-gray-700 border-gray-600 text-purple-600 focus:ring-purple-500" />
-                            <div className={`ml-3 flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center border-2 ${details.color} bg-gray-800`}>
-                                <details.icon className="w-4 h-4 text-gray-300" />
-                            </div>
-                            <span className="ml-2 text-gray-300">{p}</span>
-                        </label>
                     );
                 })}
+                <div ref={conversationEndRef} />
             </div>
-             <button onClick={() => onStart(selected)} disabled={selected.length === 0} className="w-full bg-purple-600 hover:bg-purple-700 disabled:bg-gray-500 text-white font-bold py-2 px-4 rounded transition">
-                Iniciar Sessão
-            </button>
-        </div>
-    )
-};
 
-const SuggestionReviewer = ({ suggestion, currentStoryText, onAccept, onDiscard, onRefine, isRefining }: {
-    suggestion: string;
-    currentStoryText: string;
-    onAccept: (newStory: string) => void;
-    onDiscard: () => void;
-    onRefine: (currentSuggestion: string, prompt: string) => Promise<void>;
-    isRefining: boolean;
-}) => {
-    const [localSuggestion, setLocalSuggestion] = useState(suggestion);
-    const [showDiffModal, setShowDiffModal] = useState(false);
-    const [refinementPrompt, setRefinementPrompt] = useState('');
+            {/* Input Area */}
+            {isAnswering && (
+                <div className="mt-4 pt-4 border-t border-gray-800 animate-pulse">
+                    <p className="text-center text-gray-400 text-sm">A IA está formulando a próxima pergunta...</p>
+                </div>
+            )}
 
-    useEffect(() => {
-        setLocalSuggestion(suggestion);
-    }, [suggestion]);
-
-    const handleRefineClick = async () => {
-        await onRefine(localSuggestion, refinementPrompt);
-        setRefinementPrompt('');
-    };
-
-    return (
-        <div className="h-full flex flex-col bg-gray-900/50 rounded-lg p-4">
-            <h3 className="text-lg font-semibold text-cyan-300 mb-3">Sugestão de Nova Versão</h3>
-            <div className="flex-grow flex flex-col">
-                <textarea
-                    value={localSuggestion}
-                    onChange={(e) => setLocalSuggestion(e.target.value)}
-                    className="w-full p-2 bg-gray-900 border border-gray-700 rounded-md focus:ring-1 focus:ring-purple-500 transition text-sm text-gray-300 resize-y flex-grow"
-                />
-                <div className="mt-3">
+            {!allSatisfied && currentTurn && !currentTurn.answer && !isAnswering && (
+                <div className="mt-4 pt-4 border-t border-gray-800">
                     <textarea
-                        value={refinementPrompt}
-                        onChange={(e) => setRefinementPrompt(e.target.value)}
-                        rows={2}
-                        className="w-full p-2 bg-gray-800 border border-gray-600 rounded-md focus:ring-1 focus:ring-purple-500 transition text-sm text-gray-300 resize-y"
-                        placeholder="Instruções para refinar a sugestão acima..."
-                        disabled={isRefining}
+                        className="w-full p-3 bg-gray-800 border border-gray-700 rounded-md focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 transition text-gray-300 resize-none"
+                        rows={3}
+                        placeholder="Sua resposta..."
+                        value={currentAnswer}
+                        onChange={(e) => setCurrentAnswer(e.target.value)}
+                        onKeyDown={(e) => {
+                            if (e.key === 'Enter' && !e.shiftKey) {
+                                e.preventDefault();
+                                handleAnswerSubmit();
+                            }
+                        }}
                     />
-                    <button onClick={handleRefineClick} disabled={!refinementPrompt.trim() || isRefining} className="w-full mt-2 bg-purple-700 hover:bg-purple-800 disabled:bg-gray-600 text-white font-bold py-1.5 px-3 rounded transition text-sm">
-                        {isRefining ? 'Refinando...' : 'Refinar Sugestão'}
-                    </button>
+                    <div className="flex justify-end gap-3 mt-3">
+                        <button 
+                            onClick={handleSkip}
+                            className="px-4 py-2 text-gray-400 hover:text-white text-sm font-medium transition"
+                        >
+                            Pular / Não sei
+                        </button>
+                        <button 
+                            onClick={handleAnswerSubmit}
+                            disabled={!currentAnswer.trim()}
+                            className="bg-cyan-600 hover:bg-cyan-700 text-white font-bold py-2 px-6 rounded-md shadow-lg transform transition hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
+                        >
+                            Enviar Resposta
+                        </button>
+                    </div>
                 </div>
-            </div>
-            <div className="flex justify-between items-center mt-4 pt-4 border-t border-gray-700">
-                <button onClick={() => setShowDiffModal(true)} className="flex items-center gap-2 text-sm text-gray-300 hover:text-purple-300 transition-colors py-2 px-4 rounded-md hover:bg-gray-700/50">
-                    <SwitchHorizontalIcon className="w-5 h-5" />
-                    <span>Comparar</span>
-                </button>
-                <div className="flex gap-3">
-                    <button onClick={onDiscard} className="bg-gray-600 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded transition">Descartar</button>
-                    <button onClick={() => onAccept(localSuggestion)} className="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded transition">Aceitar</button>
+            )}
+
+            {allSatisfied && !isAnswering && (
+                <div className="mt-6 p-6 bg-gray-800 rounded-lg text-center border border-gray-700">
+                    <SparklesIcon className="w-12 h-12 text-yellow-400 mx-auto mb-3" />
+                    <h3 className="text-lg font-bold text-white mb-2">Refinamento Concluído!</h3>
+                    <p className="text-gray-400 text-sm mb-6">Você esclareceu todos os pontos com a equipe.</p>
+                    
+                    {planningMode === 'story' ? (
+                        <button
+                            onClick={handleGetSuggestion}
+                            disabled={isSuggesting}
+                            className="bg-gradient-to-r from-purple-600 to-cyan-600 hover:from-purple-700 hover:to-cyan-700 text-white font-bold py-3 px-8 rounded-full shadow-lg transform transition hover:scale-105 disabled:opacity-50 w-full md:w-auto"
+                        >
+                            {isSuggesting ? 'Gerando Nova Versão...' : 'Gerar Nova Versão da História'}
+                        </button>
+                    ) : (
+                        <div className="flex flex-col gap-3 justify-center">
+                             {generatedSingleGherkin ? (
+                                <div className="w-full text-left bg-gray-900 p-4 rounded-md border border-gray-700 mb-4">
+                                    <div className="flex justify-between mb-2">
+                                        <span className="text-xs font-bold text-gray-500 uppercase">Gherkin Gerado</span>
+                                        <button onClick={() => handleCopy(generatedSingleGherkin)} className="text-gray-400 hover:text-white"><ClipboardIcon className="w-4 h-4" /></button>
+                                    </div>
+                                    <pre className="text-sm text-gray-300 font-mono whitespace-pre-wrap overflow-auto max-h-40">{generatedSingleGherkin}</pre>
+                                </div>
+                            ) : null}
+                            <button
+                                onClick={handleGenerateGherkin}
+                                disabled={isGeneratingGherkin}
+                                className="bg-gradient-to-r from-yellow-600 to-orange-600 hover:from-yellow-700 hover:to-orange-700 text-white font-bold py-3 px-8 rounded-full shadow-lg transform transition hover:scale-105 disabled:opacity-50 w-full md:w-auto"
+                            >
+                                {isGeneratingGherkin ? 'Gerando Gherkin...' : 'Gerar Cenário Gherkin'}
+                            </button>
+                            {generatedSingleGherkin && (
+                                <button
+                                    onClick={handleCompleteBddPlanning}
+                                    className="bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-8 rounded-full shadow-lg transform transition hover:scale-105 w-full md:w-auto"
+                                >
+                                    Concluir e Salvar Cenário
+                                </button>
+                            )}
+                        </div>
+                    )}
                 </div>
-            </div>
-            {showDiffModal && <DiffModal oldText={currentStoryText} newText={localSuggestion} onClose={() => setShowDiffModal(false)} />}
+            )}
         </div>
     );
 };
 
-const WorkspaceView = (props: WorkspaceViewProps) => {
-    const { planningMode, originalStory, setOriginalStory, featureDescription, bddScenarios, suggestedStory, activePersonas, satisfiedPersonas } = props;
-    const [activeTab, setActiveTab] = useState<'assistant' | 'tests' | 'complexity' | 'prototype'>('assistant');
-    const [copied, setCopied] = useState(false);
 
-    const handleCopyToClipboard = (text: string | null) => {
-        if (!text) return;
-        navigator.clipboard.writeText(text);
-        setCopied(true);
-        setTimeout(() => setCopied(false), 2000);
-    };
+const WorkspaceView: React.FC<WorkspaceViewProps> = (props) => {
+    const {
+        planningMode,
+        originalStory,
+        featureDescription,
+        suggestedStory,
+        bddScenarios,
+        testScenarios,
+        isGeneratingScenarios,
+        handleGenerateScenarios,
+        complexityAnalysis,
+        isAnalyzingComplexity,
+        handleAnalyzeComplexity,
+        isGeneratingPrototype,
+        handleGeneratePrototype,
+        conversationInsights,
+        setOriginalStory,
+        setFeatureDescription,
+        handleCopy,
+        userFlowDiagram,
+        isGeneratingDiagram,
+        handleGenerateDiagram,
+        onOpenExport
+    } = props;
 
-    const getActiveStepName = () => {
-        const allSatisfied = activePersonas.length > 0 && activePersonas.every(p => satisfiedPersonas.includes(p));
+    const [activeTab, setActiveTab] = useState<'story' | 'assistant' | 'tools'>('assistant');
+    const [showDiff, setShowDiff] = useState(false);
 
-        if (planningMode === 'story') {
-            switch (activeTab) {
-                case 'assistant':
-                    return allSatisfied ? 'Complexidade' : 'Perguntas';
-                case 'tests':
-                    return 'Testes';
-                case 'complexity':
-                    return 'Complexidade';
-                case 'prototype':
-                     return allSatisfied ? 'Complexidade' : 'Perguntas';
-                default:
-                    return 'Perguntas';
-            }
-        } else { // bdd mode
-            switch (activeTab) {
-                case 'assistant':
-                case 'prototype':
-                case 'complexity':
-                    return allSatisfied ? 'Steps' : 'Gherkin';
-                case 'tests':
-                    return 'Steps';
-                default:
-                    return 'Gherkin';
-            }
-        }
-    };
-
-    const fullFeatureFile = `Funcionalidade: ${featureDescription}\n\n${bddScenarios.map(s => s.gherkin ?? `Cenário: ${s.title}`).join('\n\n')}`;
-
-
-    const TabButton = ({ tabName, label }: { tabName: typeof activeTab; label: string; }) => (
-        <button
-            onClick={() => setActiveTab(tabName)}
-            className={`py-2 px-4 text-sm font-medium transition-colors ${activeTab === tabName ? 'text-cyan-300 border-b-2 border-cyan-300' : 'text-gray-400 hover:text-white'}`}
-        >
-            {label}
-        </button>
-    );
+    // Determines what text to show in the story/feature panel
+    const currentText = planningMode === 'story' 
+        ? (suggestedStory || originalStory?.description || '') 
+        : featureDescription;
+    
+    const title = planningMode === 'story' ? (originalStory?.title || 'Sem Título') : 'Planejamento BDD';
 
     return (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 h-[calc(100vh-150px)]">
-            {/* Left Panel: Editor */}
-            <div className="bg-gray-800/50 p-6 rounded-lg flex flex-col">
-                <h2 className="text-xl font-semibold text-purple-300 mb-4">{planningMode === 'story' ? "Editor de História" : "Visualizador de Feature BDD"}</h2>
-                {planningMode === 'story' && originalStory ? (
-                    <div className="flex flex-col flex-grow">
-                        <label htmlFor="storyTitle" className="block text-sm font-medium text-gray-400 mb-1">Título</label>
-                        <input
-                            id="storyTitle"
-                            type="text"
-                            value={originalStory.title}
-                            onChange={(e) => setOriginalStory({ ...originalStory, title: e.target.value })}
-                            className="w-full p-2 bg-gray-900 border border-gray-700 rounded-md focus:ring-2 focus:ring-purple-500 transition text-gray-300"
-                        />
-                        <label htmlFor="storyDescription" className="block text-sm font-medium text-gray-400 mt-4 mb-1">Descrição</label>
-                        <textarea
-                            id="storyDescription"
-                            value={suggestedStory ?? originalStory.description}
-                            onChange={(e) => props.setOriginalStory({ ...originalStory, description: e.target.value })}
-                            className="w-full p-3 bg-gray-900 border border-gray-700 rounded-md focus:ring-2 focus:ring-purple-500 transition text-gray-300 resize-y flex-grow"
-                        />
-                    </div>
-                ) : (
-                    <div className="flex flex-col flex-grow">
-                         <div className="flex justify-between items-center mb-2">
-                             <h3 className="text-lg font-medium text-gray-300">{featureDescription}</h3>
-                             <button onClick={() => handleCopyToClipboard(fullFeatureFile)} title="Copiar Feature Completa" className="text-gray-400 hover:text-white transition">
-                                {copied ? <ClipboardCheckIcon className="w-5 h-5 text-green-400" /> : <ClipboardIcon className="w-5 h-5" />}
-                            </button>
-                         </div>
-                        <div className="bg-gray-900/50 p-3 rounded-md flex-grow overflow-y-auto">
-                            <pre className="text-sm text-gray-300 whitespace-pre-wrap font-mono">
-                                {bddScenarios.map(s => s.gherkin ?? `Cenário: ${s.title}`).join('\n\n')}
-                            </pre>
-                        </div>
-                    </div>
+        <div className="flex flex-col h-[calc(100vh-140px)] max-h-[calc(100vh-140px)]">
+            <div className="flex justify-between items-center mb-6">
+                <div className="flex-grow">
+                    <WizardStepper mode={planningMode} activeStepName={activeTab === 'story' ? (planningMode === 'story' ? 'História' : 'Feature') : activeTab === 'assistant' ? (planningMode === 'story' ? 'Perguntas' : 'Cenários') : 'Testes'} />
+                </div>
+                {onOpenExport && (
+                    <button
+                        onClick={onOpenExport}
+                        className="flex items-center gap-2 bg-cyan-600 hover:bg-cyan-700 text-white font-bold py-2 px-4 rounded-md shadow-md transition-transform transform hover:scale-105 ml-4"
+                        title="Exportar artefatos para Jira, Markdown ou HTML"
+                    >
+                        <ShareIcon className="w-5 h-5" />
+                        <span className="hidden md:inline">Exportar Artefatos</span>
+                    </button>
                 )}
             </div>
-
-            {/* Right Panel: AI Tools */}
-            <div className="bg-gray-800/50 p-6 rounded-lg flex flex-col">
-                <WizardStepper mode={planningMode} activeStepName={getActiveStepName()} />
-                <div className="border-b border-gray-700 mb-4">
-                    <nav className="-mb-px flex space-x-4" aria-label="Tabs">
-                        <TabButton tabName="assistant" label="Assistente IA" />
-                        <TabButton tabName="tests" label={planningMode === 'story' ? "Testes" : "Steps"} />
-                        {planningMode === 'story' && <TabButton tabName="complexity" label="Complexidade" />}
-                        <TabButton tabName="prototype" label="Protótipo" />
-                    </nav>
-                </div>
-                <div className="flex-grow overflow-y-auto">
-                    {activeTab === 'assistant' && <AIAssistantTab {...props} />}
-                    
-                    {activeTab === 'tests' && (
-                         <div>
-                            <h3 className="text-lg font-semibold text-cyan-300 mb-2">Gerador de Cenários de Teste</h3>
-                            <p className="text-gray-400 mb-4 text-sm">Crie cenários de teste (caminho feliz, casos de borda, negativos) com base no estado atual da história.</p>
-                             <button onClick={props.handleGenerateScenarios} disabled={props.isGeneratingScenarios} className="w-full flex items-center justify-center gap-2 bg-gray-700 hover:bg-gray-600 disabled:opacity-50 text-white font-bold py-2 px-4 rounded transition">
-                                <ClipboardListIcon className="w-5 h-5" />
-                                {props.isGeneratingScenarios ? 'Gerando...' : 'Gerar Cenários de Teste'}
-                            </button>
-                            {props.testScenarios && (
-                                <div className="mt-4 p-3 bg-gray-900/50 rounded-md">
-                                    <pre className="text-sm text-gray-300 whitespace-pre-wrap font-sans">{props.testScenarios}</pre>
-                                </div>
+            
+            <div className="flex-grow grid grid-cols-1 lg:grid-cols-12 gap-6 h-full overflow-hidden">
+                {/* Left Panel: Context (Story/Feature) - Hidden on mobile if not active tab */}
+                <div className={`lg:col-span-4 flex flex-col bg-gray-800 rounded-lg shadow-xl border border-gray-700 h-full overflow-hidden ${activeTab !== 'story' ? 'hidden lg:flex' : 'flex'}`}>
+                    <div className="p-4 border-b border-gray-700 flex justify-between items-center bg-gray-900/50">
+                        <h3 className="font-bold text-gray-200 flex items-center gap-2">
+                            {planningMode === 'story' ? <BookOpenIcon className="w-5 h-5 text-cyan-300" /> : <DocumentTextIcon className="w-5 h-5 text-yellow-300" />}
+                            {planningMode === 'story' ? 'História de Usuário' : 'Funcionalidade (BDD)'}
+                        </h3>
+                         <div className="flex gap-2">
+                            {suggestedStory && planningMode === 'story' && (
+                                <button onClick={() => setShowDiff(true)} className="p-1 hover:bg-gray-700 rounded text-gray-400 hover:text-white" title="Comparar com original">
+                                    <SwitchHorizontalIcon className="w-5 h-5" />
+                                </button>
                             )}
-                        </div>
-                    )}
-
-                    {activeTab === 'complexity' && (
-                        <div>
-                            <h3 className="text-lg font-semibold text-cyan-300 mb-2">Análise de Complexidade</h3>
-                            <p className="text-gray-400 mb-4 text-sm">Verifique se a história é muito complexa (um épico) e receba sugestões para quebrá-la.</p>
-                             <button onClick={props.handleAnalyzeComplexity} disabled={props.isAnalyzingComplexity} className="w-full flex items-center justify-center gap-2 bg-gray-700 hover:bg-gray-600 disabled:opacity-50 text-white font-bold py-2 px-4 rounded transition">
-                                <ScaleIcon className="w-5 h-5" />
-                                {props.isAnalyzingComplexity ? 'Analisando...' : 'Analisar Complexidade'}
+                            <button onClick={() => handleCopy(currentText)} className="p-1 hover:bg-gray-700 rounded text-gray-400 hover:text-white" title="Copiar texto">
+                                <ClipboardIcon className="w-5 h-5" />
                             </button>
-                             {props.complexityAnalysis && (
-                                <div className="mt-4 p-3 bg-gray-900/50 rounded-md space-y-2">
-                                     <p><strong>Classificação:</strong> <span className={`font-bold ${props.complexityAnalysis.complexity === 'Alta' ? 'text-red-400' : props.complexityAnalysis.complexity === 'Média' ? 'text-yellow-400' : 'text-green-400'}`}>{props.complexityAnalysis.complexity}</span></p>
-                                     <p><strong>Justificativa:</strong> {props.complexityAnalysis.justification}</p>
-                                </div>
-                            )}
-                        </div>
-                    )}
+                         </div>
+                    </div>
+                    <div className="flex-grow p-4 overflow-y-auto">
+                        {planningMode === 'story' && (
+                            <div className="mb-4">
+                                <label className="block text-xs font-medium text-gray-500 uppercase mb-1">Título</label>
+                                <input
+                                    type="text"
+                                    value={originalStory?.title || ''}
+                                    onChange={(e) => originalStory && setOriginalStory({ ...originalStory, title: e.target.value })}
+                                    className="w-full bg-gray-900 border border-gray-700 rounded px-3 py-2 text-gray-200 focus:ring-1 focus:ring-purple-500 outline-none"
+                                />
+                            </div>
+                        )}
+                        <label className="block text-xs font-medium text-gray-500 uppercase mb-1">Descrição</label>
+                        <textarea
+                            value={currentText}
+                            onChange={(e) => {
+                                if (planningMode === 'story' && originalStory) {
+                                    // If editing suggested story, we treat it as updating the suggestion essentially?
+                                    // But props don't allow updating suggestion directly easily here without callback.
+                                    // Assuming user edits original if no suggestion, or we need a way to update.
+                                    // For simplicity, if suggestedStory exists, we can't edit it here directly in this view without a setter.
+                                    // Let's assume we edit original description for now or feature description.
+                                    if (!suggestedStory) setOriginalStory({ ...originalStory, description: e.target.value });
+                                } else {
+                                    setFeatureDescription(e.target.value);
+                                }
+                            }}
+                            readOnly={!!suggestedStory && planningMode === 'story'} // Read only if it's a suggestion, use reviewer to edit
+                            className="w-full h-[calc(100%-80px)] bg-gray-900 border border-gray-700 rounded p-3 text-gray-300 text-sm resize-none focus:ring-1 focus:ring-purple-500 outline-none"
+                        />
+                    </div>
                     
-                    {activeTab === 'prototype' && (
-                        <div>
-                            <h3 className="text-lg font-semibold text-cyan-300 mb-2">Protótipo Visual</h3>
-                            <p className="text-gray-400 mb-4 text-sm">Gere um protótipo visual (HTML/Tailwind) para validar a interface e o fluxo do usuário.</p>
-                             <button onClick={props.handleGeneratePrototype} disabled={props.isGeneratingPrototype} className="w-full flex items-center justify-center gap-2 bg-gray-700 hover:bg-gray-600 disabled:opacity-50 text-white font-bold py-2 px-4 rounded transition">
-                                <CodeIcon className="w-5 h-5" />
-                                {props.isGeneratingPrototype ? 'Gerando...' : 'Gerar Protótipo'}
-                            </button>
-                            <div className="mt-4 text-xs text-gray-500 flex items-center gap-2">
-                                <InformationCircleIcon className="w-4 h-4" />
-                                <span>O protótipo será aberto em um modal.</span>
+                    {/* Conversation Insights Summary (Mini) */}
+                    {conversationInsights && (
+                        <div className="p-4 border-t border-gray-700 bg-yellow-900/10">
+                            <h4 className="text-xs font-bold text-yellow-500 uppercase mb-2 flex items-center gap-1">
+                                <LightBulbIcon className="w-4 h-4" />
+                                Pontos de Atenção
+                            </h4>
+                            <div className="text-xs text-gray-400 max-h-32 overflow-y-auto whitespace-pre-wrap">
+                                {conversationInsights}
                             </div>
                         </div>
                     )}
                 </div>
+
+                {/* Center/Right Panel: Main Workspace (Chat or Tools) */}
+                <div className={`lg:col-span-8 flex flex-col h-full overflow-hidden ${activeTab === 'story' ? 'hidden lg:flex' : 'flex'}`}>
+                    {/* Mobile Tab Switcher */}
+                    <div className="lg:hidden flex border-b border-gray-700 bg-gray-800 mb-2">
+                        <button onClick={() => setActiveTab('story')} className={`flex-1 py-3 text-sm font-medium ${activeTab === 'story' ? 'text-purple-300 border-b-2 border-purple-500' : 'text-gray-400'}`}>Contexto</button>
+                        <button onClick={() => setActiveTab('assistant')} className={`flex-1 py-3 text-sm font-medium ${activeTab === 'assistant' ? 'text-purple-300 border-b-2 border-purple-500' : 'text-gray-400'}`}>Assistente</button>
+                        <button onClick={() => setActiveTab('tools')} className={`flex-1 py-3 text-sm font-medium ${activeTab === 'tools' ? 'text-purple-300 border-b-2 border-purple-500' : 'text-gray-400'}`}>Ferramentas</button>
+                    </div>
+
+                    {/* Desktop Tabs (only for Tools vs Assistant if needed, but let's keep them together or split) */}
+                    {/* Let's use a unified view for desktop, but toggle between Chat and Tools if screen real estate is small, or side-by-side? */}
+                    {/* Given the design, let's stick to tabs for the right panel content: Chat vs Tools */}
+                    <div className="hidden lg:flex border-b border-gray-700 bg-gray-800 rounded-t-lg mx-1">
+                        <button onClick={() => setActiveTab('assistant')} className={`px-6 py-3 text-sm font-medium flex items-center gap-2 ${activeTab === 'assistant' ? 'text-cyan-300 bg-gray-900 border-t-2 border-cyan-500' : 'text-gray-400 hover:text-white hover:bg-gray-700'}`}>
+                            <SparklesIcon className="w-4 h-4" />
+                            Assistente de Refinamento
+                        </button>
+                        <button onClick={() => setActiveTab('tools')} className={`px-6 py-3 text-sm font-medium flex items-center gap-2 ${activeTab === 'tools' ? 'text-purple-300 bg-gray-900 border-t-2 border-purple-500' : 'text-gray-400 hover:text-white hover:bg-gray-700'}`}>
+                            <CodeIcon className="w-4 h-4" />
+                            Ferramentas & Validação
+                        </button>
+                    </div>
+
+                    <div className="flex-grow bg-gray-800 lg:rounded-b-lg lg:mx-1 shadow-xl border border-gray-700 border-t-0 p-4 overflow-hidden flex flex-col">
+                        {activeTab === 'assistant' && (
+                            <AIAssistantTab {...props} />
+                        )}
+                        
+                        {activeTab === 'tools' && (
+                             <div className="h-full overflow-y-auto pr-2 space-y-6">
+                                {/* Tools Grid */}
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    {/* 1. Test Scenarios */}
+                                    <div className="bg-gray-900/50 p-4 rounded-lg border border-gray-700">
+                                        <div className="flex justify-between items-center mb-4">
+                                            <h4 className="font-bold text-green-400 flex items-center gap-2">
+                                                <ClipboardListIcon className="w-5 h-5" />
+                                                Cenários de Teste
+                                            </h4>
+                                            {testScenarios && (
+                                                <button onClick={() => handleCopy(testScenarios)} className="text-gray-400 hover:text-white"><ClipboardIcon className="w-4 h-4" /></button>
+                                            )}
+                                        </div>
+                                        {testScenarios ? (
+                                            <pre className="text-xs text-gray-300 whitespace-pre-wrap max-h-60 overflow-y-auto custom-scrollbar">{testScenarios}</pre>
+                                        ) : (
+                                            <div className="text-center py-8 text-gray-500 text-sm">
+                                                Nenhum cenário gerado ainda.
+                                            </div>
+                                        )}
+                                        <button 
+                                            onClick={handleGenerateScenarios} 
+                                            disabled={isGeneratingScenarios}
+                                            className="w-full mt-4 bg-gray-700 hover:bg-gray-600 text-white py-2 rounded text-sm font-medium transition disabled:opacity-50"
+                                        >
+                                            {isGeneratingScenarios ? 'Gerando...' : 'Gerar Cenários de QA'}
+                                        </button>
+                                    </div>
+
+                                    {/* 2. Complexity Analysis (Only for Story Mode) */}
+                                    {planningMode === 'story' && (
+                                        <div className="bg-gray-900/50 p-4 rounded-lg border border-gray-700">
+                                            <div className="flex justify-between items-center mb-4">
+                                                <h4 className="font-bold text-yellow-400 flex items-center gap-2">
+                                                    <ScaleIcon className="w-5 h-5" />
+                                                    Análise de Complexidade
+                                                </h4>
+                                            </div>
+                                            {complexityAnalysis ? (
+                                                <div className="text-sm text-gray-300 space-y-2">
+                                                    <p><span className="font-bold text-gray-400">Nível:</span> <span className={`${complexityAnalysis.complexity === 'Alta' ? 'text-red-400' : complexityAnalysis.complexity === 'Média' ? 'text-yellow-400' : 'text-green-400'}`}>{complexityAnalysis.complexity}</span></p>
+                                                    <p><span className="font-bold text-gray-400">Justificativa:</span> {complexityAnalysis.justification}</p>
+                                                    {complexityAnalysis.complexity === 'Alta' && <p className="text-xs text-red-300 mt-2 italic">Recomendado quebrar esta história.</p>}
+                                                </div>
+                                            ) : (
+                                                <div className="text-center py-8 text-gray-500 text-sm">
+                                                    Análise não realizada.
+                                                </div>
+                                            )}
+                                            <button 
+                                                onClick={handleAnalyzeComplexity} 
+                                                disabled={isAnalyzingComplexity}
+                                                className="w-full mt-4 bg-gray-700 hover:bg-gray-600 text-white py-2 rounded text-sm font-medium transition disabled:opacity-50"
+                                            >
+                                                {isAnalyzingComplexity ? 'Analisando...' : 'Verificar Complexidade (INVEST)'}
+                                            </button>
+                                        </div>
+                                    )}
+
+                                    {/* 3. Visual Prototype */}
+                                    <div className="bg-gray-900/50 p-4 rounded-lg border border-gray-700">
+                                        <div className="flex justify-between items-center mb-4">
+                                            <h4 className="font-bold text-cyan-400 flex items-center gap-2">
+                                                <CodeIcon className="w-5 h-5" />
+                                                Protótipo Visual
+                                            </h4>
+                                        </div>
+                                        <div className="text-center py-6 text-gray-500 text-sm">
+                                            Gera uma visualização HTML/Tailwind baseada nos requisitos atuais.
+                                        </div>
+                                        <button 
+                                            onClick={handleGeneratePrototype} 
+                                            disabled={isGeneratingPrototype}
+                                            className="w-full mt-auto bg-gray-700 hover:bg-gray-600 text-white py-2 rounded text-sm font-medium transition disabled:opacity-50"
+                                        >
+                                            {isGeneratingPrototype ? 'Criando...' : 'Gerar Protótipo (Preview)'}
+                                        </button>
+                                    </div>
+
+                                    {/* 4. User Flow Diagram */}
+                                     {planningMode === 'story' && (
+                                        <div className="bg-gray-900/50 p-4 rounded-lg border border-gray-700">
+                                            <div className="flex justify-between items-center mb-4">
+                                                <h4 className="font-bold text-pink-400 flex items-center gap-2">
+                                                    <FlowIcon className="w-5 h-5" />
+                                                    Fluxo do Usuário
+                                                </h4>
+                                            </div>
+                                            <div className="h-48 bg-gray-800 rounded border border-gray-600 overflow-hidden flex items-center justify-center relative">
+                                                 {userFlowDiagram ? (
+                                                     <DiagramViewer code={userFlowDiagram} className="w-full h-full" />
+                                                 ) : (
+                                                     <span className="text-gray-500 text-xs">Gere o diagrama para visualizar o fluxo.</span>
+                                                 )}
+                                            </div>
+                                            <button 
+                                                onClick={handleGenerateDiagram} 
+                                                disabled={isGeneratingDiagram}
+                                                className="w-full mt-4 bg-gray-700 hover:bg-gray-600 text-white py-2 rounded text-sm font-medium transition disabled:opacity-50"
+                                            >
+                                                {isGeneratingDiagram ? 'Gerando...' : 'Gerar Diagrama de Fluxo'}
+                                            </button>
+                                        </div>
+                                    )}
+                                </div>
+                             </div>
+                        )}
+                    </div>
+                </div>
             </div>
+            
+            {showDiff && originalStory && planningMode === 'story' && suggestedStory && (
+                <DiffModal 
+                    oldText={originalStory.description} 
+                    newText={suggestedStory} 
+                    onClose={() => setShowDiff(false)} 
+                />
+            )}
         </div>
     );
 };

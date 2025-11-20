@@ -1,19 +1,15 @@
+
 import React, { useState, useCallback, useRef, useEffect } from 'react';
-import { Persona, ParsedStory, RedmineIssue, ConversationTurn, ComplexityAnalysisResult, SplitStory, BddFeatureSuggestion, GherkinScenario } from './types';
-import { generateInitialQuestions, suggestNewStoryVersion, generateFollowUpQuestion, generateNewStory, refineSuggestedStory, generateTestScenarios, analyzeStoryComplexity, generateStoriesFromTranscript, generatePrototype, generateBddScenarios, generateBddFollowUpQuestion, generateGherkinFromConversation, generatePoChecklist, generateStepDefinitions, convertDocumentToBdd, analyzeAndBreakdownDocument, analyzePlanningTranscript, analyzeHomologationTranscript, generatePrototypeFromFeature, generateBddFollowUpQuestionForGroup, generateGherkinFromGroupConversation, extractTableColumnsFromQuestion, generateInitialScenarioOutline } from './services/geminiService';
-import { personaDetails, UserIcon, BookOpenIcon, XIcon, MenuIcon, SparklesIcon, HomeIcon, ClipboardIcon, ClipboardCheckIcon, ClipboardListIcon, InformationCircleIcon, ScaleIcon, MicrophoneIcon, TemplateIcon, ViewBoardsIcon, DocumentTextIcon, CheckCircleIcon, PencilIcon, TrashIcon, CodeIcon, SwitchHorizontalIcon, DownloadIcon, TableIcon, PlusIcon, ArrowLeftIcon } from './components/icons';
+import { Persona, ParsedStory, RedmineIssue, ConversationTurn, ComplexityAnalysisResult, SplitStory, BddFeatureSuggestion, GherkinScenario, SessionData, QuestionResponse, BddScenario } from './types';
+import { generateInitialQuestions, suggestNewStoryVersion, generateFollowUpQuestion, generateNewStory, refineSuggestedStory, generateTestScenarios, analyzeStoryComplexity, generateStoriesFromTranscript, generatePrototype, generateBddScenarios, generateBddFollowUpQuestion, generateGherkinFromConversation, generatePoChecklist, generateStepDefinitions, convertDocumentToBdd, analyzeAndBreakdownDocument, analyzePlanningTranscript, analyzeHomologationTranscript, generatePrototypeFromFeature, generateBddFollowUpQuestionForGroup, generateGherkinFromGroupConversation, extractTableColumnsFromQuestion, generateInitialScenarioOutline, generateConversationInsights, generateUserFlowDiagram } from './services/geminiService';
+import { personaDetails, UserIcon, BookOpenIcon, XIcon, MenuIcon, SparklesIcon, HomeIcon, ClipboardIcon, ClipboardCheckIcon, ClipboardListIcon, InformationCircleIcon, ScaleIcon, MicrophoneIcon, TemplateIcon, ViewBoardsIcon, DocumentTextIcon, CheckCircleIcon, PencilIcon, TrashIcon, CodeIcon, SwitchHorizontalIcon, DownloadIcon, TableIcon, PlusIcon, ArrowLeftIcon, FlowIcon } from './components/icons';
 import DataTableModal from './components/DataTableModal';
 import Breadcrumbs from './components/Breadcrumbs';
 import WorkspaceView from './components/WorkspaceView';
+import HistorySidebar from './components/HistorySidebar';
+import GherkinEditor from './components/GherkinEditor';
+import ExportModal from './components/ExportModal';
 
-
-type BddScenario = {
-    id: number;
-    title: string;
-    gherkin: string | null;
-    completed: boolean;
-    type: 'scenario' | 'outline';
-};
 
 type ConfirmationAction = {
     title: string;
@@ -58,35 +54,6 @@ const translateStateToFriendlyName = (state: AppState): string => {
 };
 
 
-const GherkinContent = ({ text }: { text: string }) => {
-    const lines = text.split('\n');
-    const elements: React.ReactNode[] = [];
-    let inDocString = false;
-
-    const docStringStyle = "block bg-gray-700/50 text-cyan-300 px-2";
-    const tableRowStyle = "block font-mono";
-    const normalStyle = "block";
-
-    for (let i = 0; i < lines.length; i++) {
-        const line = lines[i];
-        const trimmedLine = line.trim();
-        const isBoundary = trimmedLine === '"""';
-        const isTableRow = trimmedLine.startsWith('|') && trimmedLine.endsWith('|');
-
-        if (isBoundary) {
-            elements.push(<span key={i} className={docStringStyle}>{line}</span>);
-            inDocString = !inDocString;
-        } else if (inDocString) {
-            elements.push(<span key={i} className={docStringStyle}>{line || '\u00A0'}</span>);
-        } else if (isTableRow) {
-            elements.push(<span key={i} className={tableRowStyle}>{line}</span>);
-        } else {
-            elements.push(<span key={i} className={normalStyle}>{line}</span>);
-        }
-    }
-    return <>{elements}</>;
-};
-
 const personaToKey = (p: Persona): string => {
     switch(p) {
         case Persona.Dev: return 'developerQuestion';
@@ -99,7 +66,7 @@ const personaToKey = (p: Persona): string => {
 };
 
 const Header = ({ onHomeClick, showHomeButton, homeButtonText, onBack, showBack }: { onHomeClick: () => void; showHomeButton: boolean; homeButtonText: string; onBack: () => void; showBack: boolean; }) => (
-    <header className="relative bg-gray-900/80 backdrop-blur-sm p-4 border-b border-gray-700 sticky top-0 z-20 flex items-center justify-center h-[85px]">
+    <header className="relative bg-gray-900/80 backdrop-blur-sm p-4 border-b border-gray-700 sticky top-0 z-20 flex items-center justify-center h-[85px] shrink-0">
         {showBack && (
             <div className="absolute left-4 top-1/2 -translate-y-1/2">
                 <button 
@@ -184,7 +151,8 @@ const FeaturesModal = ({ onClose }: { onClose: () => void; }) => (
                 <h4 className="font-bold text-cyan-300">Sessão de Planejamento Simulada</h4>
                 <ul className="list-disc list-inside space-y-1 mt-1">
                     <li><span className="font-semibold">Configuração Flexível:</span> Selecione as personas (Dev, QA, Arquiteto, UX, DevOps) e arraste para definir a ordem das perguntas.</li>
-                    <li><span className="font-semibold">Perguntas Contextuais:</span> A IA faz perguntas sequenciais com base nas personas e na conversa.</li>
+                    <li><span className="font-semibold">Perguntas Contextuais e Coach Mode:</span> A IA faz perguntas sequenciais e fornece insights educacionais para explicar a importância de cada questão.</li>
+                    <li><span className="font-semibold">Insights em Tempo Real:</span> Acompanhe um resumo dinâmico dos pontos de atenção e decisões tomadas durante a conversa.</li>
                     <li><span className="font-semibold">Inserção de Tabelas:</span> Quando a IA pede dados tabulares, um botão aparece para abrir um modal de edição de tabelas, inserindo os dados formatados na sua resposta.</li>
                     <li><span className="font-semibold">Análise de Complexidade (Anti-Épico):</span> Identifique histórias muito grandes e receba sugestões para quebrá-las. Refine cada nova história individualmente.</li>
                     <li><span className="font-semibold">Planejamento BDD em Grupo:</span> Selecione múltiplos cenários para discuti-los em uma única sessão de planejamento, otimizando o tempo.</li>
@@ -200,6 +168,7 @@ const FeaturesModal = ({ onClose }: { onClose: () => void; }) => (
              <div>
                 <h4 className="font-bold text-cyan-300">Ferramentas de Validação e Suporte</h4>
                 <ul className="list-disc list-inside space-y-1 mt-1">
+                    <li><span className="font-semibold">Fluxo Visual (Diagrama):</span> Gere automaticamente um diagrama de fluxo do usuário (Mermaid.js) baseado na história para identificar falhas lógicas.</li>
                     <li><span className="font-semibold">Geração de Cenários de Teste:</span> Gere cenários de teste (caminho feliz, casos de borda, negativos) para a versão atual da história a qualquer momento.</li>
                      <li><span className="font-semibold">Prototipagem Visual com IA:</span> Crie um protótipo visual (HTML/Tailwind CSS) a partir da história de usuário ou de um arquivo .feature completo para acelerar o alinhamento. O protótipo é exibido em um modal com visualização ao vivo e opção de salvar como .html.</li>
                      <li><span className="font-semibold">Checklist de Pré-Homologação (BDD):</span> Gere um roteiro de teste em linguagem natural para o PO validar a entrega a partir do arquivo .feature.</li>
@@ -207,11 +176,12 @@ const FeaturesModal = ({ onClose }: { onClose: () => void; }) => (
                 </ul>
             </div>
             <div>
-                <h4 className="font-bold text-cyan-300">Utilidades</h4>
+                <h4 className="font-bold text-cyan-300">Utilitários e Exportação</h4>
                 <ul className="list-disc list-inside space-y-1 mt-1">
+                    <li><span className="font-semibold">Histórico de Sessão:</span> Salva automaticamente seu progresso. Retome sessões anteriores através da barra lateral.</li>
+                    <li><span className="font-semibold">Exportação Profissional:</span> Exporte sua história refinada para Jira, Markdown ou gere um relatório HTML completo com diagramas e protótipos inclusos.</li>
                     <li><span className="font-semibold">Acesso Rápido:</span> Visualize a história original, o cenário atual ou a feature BDD em um modal a qualquer momento.</li>
                     <li><span className="font-semibold">Copiar para a Área de Transferência:</span> Copie facilmente a história original, perguntas, sugestões, testes e protótipos.</li>
-                     <li><span className="font-semibold">Navegação Inteligente:</span> Reinicie o processo ou volte para a seleção de histórias quebradas com um botão que se adapta ao contexto.</li>
                 </ul>
             </div>
         </div>
@@ -221,7 +191,7 @@ const FeaturesModal = ({ onClose }: { onClose: () => void; }) => (
 
 
 const HomeScreen = ({ onChoice, onShowFeatures, onShowModelModal, onShowPrototypeModal }: { onChoice: (choice: 'refining' | 'generating' | 'transcribing_context' | 'bdd_input' | 'bdd_converting_doc_input') => void; onShowFeatures: () => void; onShowModelModal: () => void; onShowPrototypeModal: () => void; }) => (
-    <div className="flex flex-col items-center justify-center min-h-screen p-4 -mt-20">
+    <div className="flex flex-col items-center justify-center min-h-[calc(100vh-85px)] p-4">
         <div className="w-full max-w-4xl bg-gray-800 rounded-lg shadow-xl p-6 text-center relative">
              <button 
                 onClick={onShowFeatures}
@@ -329,7 +299,7 @@ const StoryInput = ({ onStorySubmit }: { onStorySubmit: (story: ParsedStory) => 
     };
 
     return (
-        <div className="flex flex-col items-center justify-center min-h-screen p-4 -mt-20">
+        <div className="flex flex-col items-center justify-center min-h-[calc(100vh-85px)] p-4">
             <div className="w-full max-w-2xl bg-gray-800 rounded-lg shadow-xl p-6">
                 <h2 className="text-xl font-semibold mb-4 text-gray-200">Cole sua História de Usuário</h2>
                 <p className="text-gray-400 mb-4 text-sm">Você pode colar o JSON exportado do Redmine ou apenas o texto bruto da história.</p>
@@ -365,7 +335,7 @@ const GenerateStoryInput = ({ onGenerate }: { onGenerate: (requirements: string)
     };
 
     return (
-        <div className="flex flex-col items-center justify-center min-h-screen p-4 -mt-20">
+        <div className="flex flex-col items-center justify-center min-h-[calc(100vh-85px)] p-4">
             <div className="w-full max-w-2xl bg-gray-800 rounded-lg shadow-xl p-6">
                 <h2 className="text-xl font-semibold mb-2 text-gray-200">Gerar Nova História</h2>
                 <p className="text-gray-400 mb-4 text-sm">Forneça os detalhes e a IA criará uma história de usuário estruturada para você.</p>
@@ -392,7 +362,7 @@ const GenerateStoryInput = ({ onGenerate }: { onGenerate: (requirements: string)
 };
 
 const TranscriptionContextScreen = ({ onSelect }: { onSelect: (mode: TranscriptionMode) => void }) => (
-    <div className="flex flex-col items-center justify-center min-h-screen p-4 -mt-20">
+    <div className="flex flex-col items-center justify-center min-h-[calc(100vh-85px)] p-4">
         <div className="w-full max-w-2xl bg-gray-800 rounded-lg shadow-xl p-6 text-center">
             <h2 className="text-xl font-semibold mb-6 text-gray-200">Qual é o objetivo da análise desta transcrição?</h2>
             <div className="space-y-4">
@@ -506,7 +476,7 @@ const TranscriptionInputScreen = ({
     };
 
     return (
-        <div className="flex flex-col items-center justify-center min-h-screen p-4 -mt-20">
+        <div className="flex flex-col items-center justify-center min-h-[calc(100vh-85px)] p-4">
             <div className="w-full max-w-4xl bg-gray-800 rounded-lg shadow-xl p-6">
                 <h2 className="text-xl font-semibold mb-2 text-gray-200">{titles[mode]}</h2>
                 <p className="text-gray-400 mb-4 text-sm">{descriptions[mode]}</p>
@@ -572,7 +542,7 @@ const TranscriptionReviewScreen = ({ mode, result, onBack, onCopy }: { mode: Tra
     }
 
     return (
-        <div className="flex flex-col items-center justify-center min-h-screen p-4 -mt-20">
+        <div className="flex flex-col items-center justify-center min-h-[calc(100vh-85px)] p-4">
             <div className="w-full max-w-4xl bg-gray-800 rounded-lg shadow-xl p-6">
                 <div className="flex justify-between items-center mb-4">
                     <h2 className="text-xl font-semibold text-purple-300">{titles[mode]}</h2>
@@ -594,7 +564,7 @@ const TranscriptionReviewScreen = ({ mode, result, onBack, onCopy }: { mode: Tra
 
 const ReviewGeneratedStory = ({ story, onConfirm, onEdit }: { story: ParsedStory; onConfirm: () => void; onEdit: (story: ParsedStory) => void; }) => {
     return (
-        <div className="flex flex-col items-center justify-center min-h-screen p-4 -mt-20">
+        <div className="flex flex-col items-center justify-center min-h-[calc(100vh-85px)] p-4">
             <div className="w-full max-w-2xl bg-gray-800 rounded-lg shadow-xl p-6">
                 <h2 className="text-xl font-semibold mb-2 text-gray-200">Revise a História Gerada</h2>
                 <p className="text-gray-400 mb-4 text-sm">Você pode editar o título e a descrição antes de iniciar a sessão de planejamento.</p>
@@ -773,7 +743,7 @@ const ComplexityAnalysisModal = ({ result, onClose, onAcceptSplit }: { result: C
 );
 
 const StorySelectionScreen = ({ stories, onSelectStory }: { stories: SplitStory[], onSelectStory: (story: ParsedStory) => void }) => (
-    <div className="flex flex-col items-center justify-center min-h-screen p-4 -mt-20">
+    <div className="flex flex-col items-center justify-center min-h-[calc(100vh-85px)] p-4">
         <div className="w-full max-w-3xl bg-gray-800 rounded-lg shadow-xl p-6">
             <h2 className="text-xl font-semibold mb-2 text-gray-200">Selecione uma História para Refinar</h2>
             <p className="text-gray-400 mb-6 text-sm">A IA gerou as seguintes propostas. Escolha uma para iniciar uma sessão de planejamento individual.</p>
@@ -898,6 +868,11 @@ const getFileExtension = (technology: string): string => {
 };
 
 const App: React.FC = () => {
+    // Session Management State
+    const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
+    const [sessions, setSessions] = useState<SessionData[]>([]);
+    const [isInitialLoad, setIsInitialLoad] = useState(true);
+
     const [appState, setAppState] = useState<AppState>('home');
     const [navigationHistory, setNavigationHistory] = useState<AppState[]>(['home']);
 
@@ -939,6 +914,7 @@ const App: React.FC = () => {
     // Shared planning state
     const [activePersonas, setActivePersonas] = useState<Persona[]>([]);
     const [conversation, setConversation] = useState<ConversationTurn[]>([]);
+    const [conversationInsights, setConversationInsights] = useState<string | null>(null);
     const [currentAnswer, setCurrentAnswer] = useState('');
     const [satisfiedPersonas, setSatisfiedPersonas] = useState<Persona[]>([]);
     
@@ -979,6 +955,17 @@ const App: React.FC = () => {
     const [dataTableColumns, setDataTableColumns] = useState<string[]>([]);
     const [isExtractingColumns, setIsExtractingColumns] = useState(false);
     const [currentTurnIdForColumnCheck, setCurrentTurnIdForColumnCheck] = useState<number | null>(null);
+    
+    // Editor Table Insertion State
+    const [cursorPositionForTable, setCursorPositionForTable] = useState<number | null>(null);
+    const [tableTarget, setTableTarget] = useState<'answer' | 'editor'>('answer');
+
+    // User Flow Diagram State
+    const [userFlowDiagram, setUserFlowDiagram] = useState<string | null>(null);
+    const [isGeneratingDiagram, setIsGeneratingDiagram] = useState(false);
+
+    // Export State
+    const [isExportModalOpen, setIsExportModalOpen] = useState(false);
 
     // Cache states
     const [complexityCache, setComplexityCache] = useState<{ description: string; result: ComplexityAnalysisResult; } | null>(null);
@@ -986,8 +973,191 @@ const App: React.FC = () => {
     const [prototypeCache, setPrototypeCache] = useState<{ description: string; model: string; prototype: string; } | null>(null);
     const [bddPrototypeCache, setBddPrototypeCache] = useState<{ featureContent: string; model: string; prototype: string; } | null>(null);
     const [gherkinCache, setGherkinCache] = useState<{ conversation: ConversationTurn[]; gherkin: string | GherkinScenario[]; } | null>(null);
+    const [diagramCache, setDiagramCache] = useState<{ description: string; diagram: string; } | null>(null);
 
     const currentTurn = conversation[conversation.length - 1];
+
+    // --- PERSISTENCE LOGIC ---
+
+    // Load sessions on mount
+    useEffect(() => {
+        const savedSessions = localStorage.getItem('user-story-enhancer-sessions');
+        if (savedSessions) {
+            try {
+                const parsedSessions: SessionData[] = JSON.parse(savedSessions);
+                setSessions(parsedSessions);
+                
+                const activeSessionId = localStorage.getItem('activeSessionId');
+                if (activeSessionId) {
+                    const activeSession = parsedSessions.find(s => s.id === activeSessionId);
+                    if (activeSession) {
+                        restoreSession(activeSession);
+                    }
+                }
+            } catch (e) {
+                console.error("Failed to load sessions", e);
+            }
+        }
+        setIsInitialLoad(false);
+    }, []);
+
+    // Debounce function
+    const useDebounce = (value: any, delay: number) => {
+        const [debouncedValue, setDebouncedValue] = useState(value);
+        useEffect(() => {
+            const handler = setTimeout(() => {
+                setDebouncedValue(value);
+            }, delay);
+            return () => {
+                clearTimeout(handler);
+            };
+        }, [value, delay]);
+        return debouncedValue;
+    };
+
+    const currentSessionState: SessionData['data'] = {
+        appState,
+        navigationHistory,
+        originalStory,
+        suggestedStory,
+        splitStories,
+        complexityAnalysis,
+        suggestionForReview,
+        storyHistory,
+        transcriptionMode,
+        transcriptionAnalysisResult,
+        planningMode,
+        featureDescription,
+        bddScenarios,
+        currentScenarioIndex,
+        generatedSingleGherkin,
+        generatedGroupGherkin,
+        poChecklistContent,
+        stepDefContent,
+        selectedTechnology,
+        documentToConvert,
+        featureSuggestions,
+        convertedFeatureFile,
+        selectedScenarioIds,
+        planningScope,
+        currentGroupIndexes,
+        activePersonas,
+        conversation,
+        conversationInsights,
+        currentAnswer,
+        satisfiedPersonas,
+        testScenarios,
+        modelStory,
+        prototypeModel,
+        userFlowDiagram
+    };
+
+    const debouncedSessionState = useDebounce(currentSessionState, 1000);
+
+    // Save session on state change
+    useEffect(() => {
+        if (isInitialLoad) return;
+
+        // Only save if we have a current ID, or if we have data to save (create new ID)
+        const hasData = originalStory || featureDescription || documentToConvert || transcriptionAnalysisResult;
+        
+        if (!currentSessionId && !hasData) return;
+
+        let sessionId = currentSessionId;
+        if (!sessionId && hasData) {
+            sessionId = crypto.randomUUID();
+            setCurrentSessionId(sessionId);
+            localStorage.setItem('activeSessionId', sessionId);
+        }
+
+        if (sessionId) {
+            let title = 'Nova Sessão';
+            if (originalStory?.title) title = originalStory.title;
+            else if (featureDescription) title = featureDescription.substring(0, 30) + (featureDescription.length > 30 ? '...' : '');
+            else if (documentToConvert) title = "Análise de Documento";
+            else if (transcriptionAnalysisResult) title = "Análise de Transcrição";
+
+            const sessionData: SessionData = {
+                id: sessionId,
+                lastModified: Date.now(),
+                title: title,
+                data: debouncedSessionState
+            };
+
+            setSessions(prev => {
+                const existingIndex = prev.findIndex(s => s.id === sessionId);
+                let newSessions;
+                if (existingIndex >= 0) {
+                    newSessions = [...prev];
+                    newSessions[existingIndex] = sessionData;
+                } else {
+                    newSessions = [sessionData, ...prev];
+                }
+                // Sort by last modified
+                newSessions.sort((a, b) => b.lastModified - a.lastModified);
+                // Keep only top 5
+                if (newSessions.length > 5) newSessions = newSessions.slice(0, 5);
+                
+                localStorage.setItem('user-story-enhancer-sessions', JSON.stringify(newSessions));
+                return newSessions;
+            });
+        }
+
+    }, [debouncedSessionState, currentSessionId, isInitialLoad]);
+
+    const restoreSession = (session: SessionData) => {
+        setCurrentSessionId(session.id);
+        localStorage.setItem('activeSessionId', session.id);
+        
+        const d = session.data;
+        setAppState(d.appState as AppState);
+        setNavigationHistory(d.navigationHistory as AppState[]);
+        setOriginalStory(d.originalStory);
+        setSuggestedStory(d.suggestedStory);
+        setSplitStories(d.splitStories);
+        setComplexityAnalysis(d.complexityAnalysis);
+        setSuggestionForReview(d.suggestionForReview);
+        setStoryHistory(d.storyHistory);
+        setTranscriptionMode(d.transcriptionMode);
+        setTranscriptionAnalysisResult(d.transcriptionAnalysisResult);
+        setPlanningMode(d.planningMode);
+        setFeatureDescription(d.featureDescription);
+        setBddScenarios(d.bddScenarios);
+        setCurrentScenarioIndex(d.currentScenarioIndex);
+        setGeneratedSingleGherkin(d.generatedSingleGherkin);
+        setGeneratedGroupGherkin(d.generatedGroupGherkin || null);
+        setPoChecklistContent(d.poChecklistContent);
+        setStepDefContent(d.stepDefContent);
+        setSelectedTechnology(d.selectedTechnology);
+        setDocumentToConvert(d.documentToConvert);
+        setFeatureSuggestions(d.featureSuggestions);
+        setConvertedFeatureFile(d.convertedFeatureFile);
+        setSelectedScenarioIds(d.selectedScenarioIds);
+        setPlanningScope(d.planningScope);
+        setCurrentGroupIndexes(d.currentGroupIndexes);
+        setActivePersonas(d.activePersonas);
+        setConversation(d.conversation);
+        setConversationInsights(d.conversationInsights);
+        setCurrentAnswer(d.currentAnswer);
+        setSatisfiedPersonas(d.satisfiedPersonas);
+        setTestScenarios(d.testScenarios);
+        setModelStory(d.modelStory);
+        setPrototypeModel(d.prototypeModel);
+        setUserFlowDiagram(d.userFlowDiagram || null);
+        
+        // Clear temp caches on session switch
+        invalidateCaches();
+    };
+
+    const handleDeleteSession = (id: string) => {
+        const newSessions = sessions.filter(s => s.id !== id);
+        setSessions(newSessions);
+        localStorage.setItem('user-story-enhancer-sessions', JSON.stringify(newSessions));
+        
+        if (currentSessionId === id) {
+            resetApp();
+        }
+    };
 
     const resetTranscriptionState = () => {
         setTranscriptionMode(null);
@@ -1009,6 +1179,7 @@ const App: React.FC = () => {
         setGherkinCache(null);
         setPoChecklistCache(null);
         setStepDefCache(null);
+        setDiagramCache(null);
     };
 
     const navigateTo = (newState: AppState) => {
@@ -1062,12 +1233,26 @@ const App: React.FC = () => {
         }
     };
 
+    // --- REAL-TIME INSIGHTS LOGIC ---
+    useEffect(() => {
+        // Generate insights every 3 completed turns to avoid API spam
+        const completedTurns = conversation.filter(t => t.answer).length;
+        if (completedTurns > 0 && completedTurns % 3 === 0 && appState === 'workspace') {
+            const updateInsights = async () => {
+                const insights = await generateConversationInsights(conversation);
+                setConversationInsights(insights);
+            };
+            updateInsights();
+        }
+    }, [conversation, appState]);
+
     useEffect(() => {
         // Check if it's a new turn that hasn't been processed for columns yet
         if (appState === 'workspace' && planningMode === 'bdd' && currentTurn && !currentTurn.answer && currentTurn.id !== currentTurnIdForColumnCheck) {
             const inferColumns = async () => {
                 setCurrentTurnIdForColumnCheck(currentTurn.id); // Mark as processed
                 setIsExtractingColumns(true);
+                setTableTarget('answer');
                 setDataTableColumns([]); // Reset from previous turn
                 try {
                     const columns = await extractTableColumnsFromQuestion(currentTurn.question);
@@ -1326,6 +1511,7 @@ const App: React.FC = () => {
 
     const handleStartPlanning = useCallback(async (selectedPersonas: Persona[]) => {
         setSatisfiedPersonas([]);
+        setConversationInsights(null);
         let contextStory: ParsedStory | null = null;
         if (planningMode === 'story') {
             contextStory = originalStory;
@@ -1384,20 +1570,20 @@ const App: React.FC = () => {
                     continue;
                 }
 
-                let aiResponseText: string;
+                let aiResponse: QuestionResponse;
                  if (planningMode === 'bdd') {
                     const titles = planningScope === 'single' ? [originalStory.title] : currentGroupIndexes.map(i => bddScenarios[i].title);
                     if (planningScope === 'single') {
-                        aiResponseText = await generateBddFollowUpQuestion(featureDescription, titles[0], tempConversation, nextPersona);
+                        aiResponse = await generateBddFollowUpQuestion(featureDescription, titles[0], tempConversation, nextPersona);
                     } else {
-                        aiResponseText = await generateBddFollowUpQuestionForGroup(featureDescription, titles, tempConversation, nextPersona);
+                        aiResponse = await generateBddFollowUpQuestionForGroup(featureDescription, titles, tempConversation, nextPersona);
                     }
                 } else {
-                    aiResponseText = await generateFollowUpQuestion(originalStory, tempConversation, nextPersona);
+                    aiResponse = await generateFollowUpQuestion(originalStory, tempConversation, nextPersona);
                 }
 
 
-                if (aiResponseText.startsWith("CONSENSO:")) {
+                if (aiResponse.isConsensus) {
                     if (!tempSatisfiedPersonas.includes(nextPersona)) {
                       tempSatisfiedPersonas.push(nextPersona);
                     }
@@ -1407,6 +1593,7 @@ const App: React.FC = () => {
                         persona: nextPersona,
                         question: `Entendido. Da minha perspectiva como ${nextPersona}, não tenho mais dúvidas.`,
                         isSystemMessage: true,
+                        educationalInsight: aiResponse.educationalInsight
                     };
                     tempConversation = [...tempConversation, conclusionTurn];
 
@@ -1418,7 +1605,8 @@ const App: React.FC = () => {
                     const nextQuestionTurn: ConversationTurn = {
                         id: Date.now() + i,
                         persona: nextPersona,
-                        question: aiResponseText,
+                        question: aiResponse.question,
+                        educationalInsight: aiResponse.educationalInsight
                     };
                     tempConversation = [...tempConversation, nextQuestionTurn];
                     break; 
@@ -1579,6 +1767,7 @@ const App: React.FC = () => {
         setGeneratedSingleGherkin(null);
         setGeneratedGroupGherkin(null);
         setSelectedScenarioIds([]);
+        setConversationInsights(null);
         navigateTo('bdd_scenarios');
     }, [currentScenarioIndex, generatedSingleGherkin, bddScenarios, planningScope, generatedGroupGherkin]);
     
@@ -1778,10 +1967,13 @@ const App: React.FC = () => {
         setSuggestedPrototype(null);
         setComplexityAnalysis(null);
         setLocalPrototypeModel('');
+        setConversationInsights(null);
+        setUserFlowDiagram(null); // Reset diagram
         // Reset Caches
         setComplexityCache(null);
         setTestScenariosCache(null);
         setPrototypeCache(null);
+        setDiagramCache(null);
         
         // Set new story and move to config
         setOriginalStory(story);
@@ -1799,7 +1991,39 @@ const App: React.FC = () => {
         invalidateCaches();
     };
 
+    const handleInsertTable = (cursorIndex: number, target: 'answer' | 'editor') => {
+        setCursorPositionForTable(cursorIndex);
+        setTableTarget(target);
+        setIsDataTableModalOpen(true);
+    };
+
+    const handleGenerateDiagram = useCallback(async () => {
+        if (!originalStory) return;
+        const storyToDiagram = suggestedStory ? { title: originalStory.title, description: suggestedStory } : originalStory;
+
+        if (diagramCache && diagramCache.description === storyToDiagram.description) {
+            setUserFlowDiagram(diagramCache.diagram);
+            return;
+        }
+
+        setIsGeneratingDiagram(true);
+        setUserFlowDiagram(null);
+        setError(null);
+        try {
+            const diagram = await generateUserFlowDiagram(storyToDiagram);
+            setUserFlowDiagram(diagram);
+            setDiagramCache({ description: storyToDiagram.description, diagram });
+        } catch (err) {
+             setError(err instanceof Error ? err.message : 'Falha ao gerar o diagrama de fluxo.');
+        } finally {
+            setIsGeneratingDiagram(false);
+        }
+    }, [originalStory, suggestedStory, diagramCache]);
+
     const resetApp = () => {
+        setCurrentSessionId(null);
+        localStorage.removeItem('activeSessionId');
+
         setAppState('home');
         setNavigationHistory(['home']);
         setOriginalStory(null);
@@ -1817,6 +2041,7 @@ const App: React.FC = () => {
         setEditingOutline(null);
         setActivePersonas([]);
         setConversation([]);
+        setConversationInsights(null);
         setSatisfiedPersonas([]);
         setCurrentAnswer('');
         setIsAnswering(false);
@@ -1853,23 +2078,28 @@ const App: React.FC = () => {
         setPlanningScope('single');
         setCurrentGroupIndexes([]);
         setGeneratedGroupGherkin(null);
+        setUserFlowDiagram(null);
+        setIsGeneratingDiagram(false);
+
         // Reset Caches
         setComplexityCache(null);
         setTestScenariosCache(null);
         setPrototypeCache(null);
         setBddPrototypeCache(null);
         setGherkinCache(null);
+        setDiagramCache(null);
         // Reset Data Table state
         setIsDataTableModalOpen(false);
         setDataTableColumns([]);
         setIsExtractingColumns(false);
         setCurrentTurnIdForColumnCheck(null);
+        setCursorPositionForTable(null);
     };
 
     const handleRestart = () => {
         setConfirmationAction({
             title: "Confirmar Reinício",
-            message: "Tem certeza que deseja recomeçar? Todo o progresso será perdido.",
+            message: "Tem certeza que deseja recomeçar esta sessão? Os dados atuais serão limpos.",
             onConfirm: resetApp
         });
     };
@@ -1879,6 +2109,7 @@ const App: React.FC = () => {
     const handleBackToSelection = () => {
         const confirmLogic = () => {
            setConversation([]);
+           setConversationInsights(null);
            setSuggestedStory(null);
            setError(null);
            setCurrentAnswer('');
@@ -2008,7 +2239,7 @@ const App: React.FC = () => {
                 );
             case 'bdd_input':
                 return (
-                    <div className="flex flex-col items-center justify-center min-h-screen p-4 -mt-20">
+                    <div className="flex flex-col items-center justify-center min-h-[calc(100vh-85px)] p-4">
                         <div className="w-full max-w-2xl bg-gray-800 rounded-lg shadow-xl p-6">
                             <h2 className="text-xl font-semibold mb-2 text-gray-200">Criar Feature BDD</h2>
                             <p className="text-gray-400 mb-4 text-sm">Descreva a funcionalidade em alto nível. A IA irá sugerir os cenários de teste.</p>
@@ -2031,7 +2262,7 @@ const App: React.FC = () => {
                 );
             case 'bdd_converting_doc_input':
                 return (
-                    <div className="flex flex-col items-center justify-center min-h-screen p-4 -mt-20">
+                    <div className="flex flex-col items-center justify-center min-h-[calc(100vh-85px)] p-4">
                         <div className="w-full max-w-3xl bg-gray-800 rounded-lg shadow-xl p-6">
                             <h2 className="text-xl font-semibold mb-2 text-gray-200">Converter Documento para BDD</h2>
                             <p className="text-gray-400 mb-4 text-sm">Cole um documento de requisitos tradicional. A IA irá analisá-lo e sugerir uma quebra em features menores e coesas.</p>
@@ -2054,7 +2285,7 @@ const App: React.FC = () => {
                 );
             case 'bdd_breakdown_review':
                 return (
-                    <div className="flex flex-col items-center justify-center min-h-screen p-4 -mt-20">
+                    <div className="flex flex-col items-center justify-center min-h-[calc(100vh-85px)] p-4">
                         <div className="w-full max-w-3xl bg-gray-800 rounded-lg shadow-xl p-6">
                             <h2 className="text-xl font-semibold mb-2 text-gray-200">Análise do Documento</h2>
                             <p className="text-gray-400 mb-6 text-sm">A IA analisou o documento e sugeriu a seguinte quebra em features. Escolha uma para converter em um arquivo BDD (.feature).</p>
@@ -2075,7 +2306,7 @@ const App: React.FC = () => {
                 );
             case 'bdd_converting_doc_review':
                 return (
-                    <div className="flex flex-col items-center justify-center min-h-screen p-4 -mt-20">
+                    <div className="flex flex-col items-center justify-center min-h-[calc(100vh-85px)] p-4">
                         <div className="w-full max-w-4xl bg-gray-800 rounded-lg shadow-xl p-6">
                             <div className="flex justify-between items-center mb-4">
                                 <h2 className="text-xl font-semibold text-purple-300">Arquivo .feature Gerado</h2>
@@ -2083,10 +2314,8 @@ const App: React.FC = () => {
                                     {copiedTurnId ? <ClipboardCheckIcon className="w-5 h-5 text-green-400" /> : <ClipboardIcon className="w-5 h-5" />}
                                 </button>
                             </div>
-                            <div className="max-h-[60vh] overflow-y-auto pr-2 bg-gray-900/50 p-4 rounded-md">
-                                <pre className="text-sm text-gray-300 whitespace-pre-wrap font-mono">
-                                    <GherkinContent text={convertedFeatureFile} />
-                                </pre>
+                            <div className="max-h-[60vh] overflow-y-auto pr-2 bg-gray-900 rounded-md">
+                                <GherkinEditor value={convertedFeatureFile} readOnly className="h-full min-h-[400px] border-none" />
                             </div>
                             <div className="flex justify-end gap-3 mt-6">
                                 <button onClick={() => navigateTo('bdd_breakdown_review')} className="bg-gray-600 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded">Voltar</button>
@@ -2123,7 +2352,7 @@ const App: React.FC = () => {
                     };
                     
                     return (
-                        <div className="flex flex-col items-center justify-center min-h-screen p-4 -mt-20">
+                        <div className="flex flex-col items-center justify-center min-h-[calc(100vh-85px)] p-4">
                             <div className="w-full max-w-4xl bg-gray-800 rounded-lg shadow-xl p-6">
                                 <div className="flex justify-between items-center mb-4">
                                     <div>
@@ -2242,246 +2471,266 @@ const App: React.FC = () => {
             case 'scenario_outline_editor':
                 if (!editingOutline) return null;
                 return (
-                    <div className="flex flex-col items-center justify-center min-h-screen p-4 -mt-20">
+                    <div className="flex flex-col items-center justify-center min-h-[calc(100vh-85px)] p-4">
                         <div className="w-full max-w-5xl bg-gray-800 rounded-lg shadow-xl p-6">
                             <h2 className="text-xl font-semibold text-purple-300 mb-4">{currentScenarioIndex !== null && bddScenarios[currentScenarioIndex]?.title}</h2>
                             
-                            {/* Template Section */}
+                            {/* Template Section with Gherkin Editor */}
                             <div className="mb-6">
                                 <label className="flex justify-between items-center mb-2 text-sm font-medium text-gray-300">
-                                    <span>Scenario Outline</span>
-                                    <button onClick={() => handleCopy(editingOutline.template)} title="Copiar Template" className="text-gray-400 hover:text-white transition">
-                                        {copiedTurnId ? <ClipboardCheckIcon className="w-5 h-5 text-green-400" /> : <ClipboardIcon className="w-5 h-5" />}
-                                    </button>
+                                    <span>Scenario Outline (Editor BDD)</span>
                                 </label>
-                                <textarea
+                                <GherkinEditor
                                     value={editingOutline.template}
-                                    onChange={(e) => setEditingOutline({ ...editingOutline, template: e.target.value })}
-                                    rows={8}
-                                    className="w-full p-3 bg-gray-900 border border-gray-700 rounded-md focus:ring-2 focus:ring-purple-500 transition text-gray-300 resize-y font-mono"
+                                    onChange={(newValue) => setEditingOutline({ ...editingOutline, template: newValue })}
+                                    className="h-64"
+                                    title="Editor de Template"
+                                    onRequestTable={(cursor) => handleInsertTable(cursor, 'editor')}
                                 />
                             </div>
 
-                            {/* Examples Section */}
-                            <div>
-                                <h3 className="text-lg font-semibold text-cyan-300 mb-4">Examples</h3>
-                                <div className="max-h-[40vh] overflow-auto border border-gray-700 rounded-lg">
-                                    <table className="w-full text-sm text-left text-gray-400">
-                                        <thead className="text-xs text-gray-300 uppercase bg-gray-700/50 sticky top-0">
-                                            <tr>
-                                                {editingOutline.headers.map((header, colIndex) => (
-                                                    <th key={colIndex} scope="col" className="px-4 py-3">
-                                                         <input
-                                                            type="text"
-                                                            value={header}
-                                                            onChange={(e) => {
-                                                                const newHeaders = [...editingOutline.headers];
-                                                                newHeaders[colIndex] = e.target.value;
-                                                                setEditingOutline({...editingOutline, headers: newHeaders});
-                                                            }}
-                                                            className="w-full bg-transparent border-0 border-b-2 border-gray-600 focus:border-purple-400 focus:outline-none focus:ring-0 p-0"
-                                                        />
-                                                    </th>
-                                                ))}
-                                                <th scope="col" className="px-4 py-3 w-12 text-center">Ação</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            {editingOutline.rows.map((row, rowIndex) => (
-                                                <tr key={rowIndex} className="border-b border-gray-700 hover:bg-gray-700/50">
-                                                    {row.map((cell, colIndex) => (
-                                                        <td key={colIndex} className="px-2 py-1">
-                                                            <input
-                                                                type="text"
-                                                                value={cell}
-                                                                onChange={(e) => {
-                                                                    const newRows = [...editingOutline.rows];
-                                                                    newRows[rowIndex][colIndex] = e.target.value;
-                                                                    setEditingOutline({...editingOutline, rows: newRows});
-                                                                }}
-                                                                className="w-full bg-gray-900 border border-gray-600 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-purple-500"
-                                                            />
-                                                        </td>
-                                                    ))}
-                                                    <td className="px-2 py-1 text-center">
-                                                        <button onClick={() => {
-                                                            if (editingOutline.rows.length > 1) {
-                                                                const newRows = editingOutline.rows.filter((_, i) => i !== rowIndex);
-                                                                setEditingOutline({...editingOutline, rows: newRows});
-                                                            }
-                                                        }} disabled={editingOutline.rows.length <= 1} className="text-gray-400 hover:text-red-400 disabled:opacity-50 disabled:cursor-not-allowed p-1" title="Remover linha">
-                                                            <TrashIcon className="w-5 h-5" />
-                                                        </button>
-                                                    </td>
-                                                </tr>
-                                            ))}
-                                        </tbody>
-                                    </table>
-                                </div>
-                                <button onClick={() => {
-                                    const newRows = [...editingOutline.rows, Array(editingOutline.headers.length).fill('')];
-                                    setEditingOutline({...editingOutline, rows: newRows});
-                                }} className="flex items-center gap-2 mt-4 bg-cyan-600 hover:bg-cyan-700 text-white font-bold py-2 px-3 rounded transition text-sm">
-                                    <PlusIcon className="w-4 h-4" />
-                                    Adicionar Linha
-                                </button>
-                            </div>
-
-                             <div className="flex justify-end gap-3 mt-6 pt-4 border-t border-gray-700">
+                            <div className="flex justify-end gap-3 mt-6 pt-4 border-t border-gray-700">
                                 <button onClick={() => navigateTo('bdd_scenarios')} className="bg-gray-600 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded transition">Cancelar</button>
-                                <button onClick={handleSaveOutline} className="bg-purple-600 hover:bg-purple-700 text-white font-bold py-2 px-4 rounded transition">Salvar e Voltar</button>
+                                <button onClick={handleSaveOutline} className="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded transition">Salvar e Concluir</button>
                             </div>
                         </div>
                     </div>
                 );
             case 'reviewing':
-                return originalStory && <ReviewGeneratedStory story={originalStory} onConfirm={handleReviewConfirm} onEdit={(story) => setOriginalStory(story)} />;
-            case 'loading_generation':
-            case 'loading_transcription':
-            case 'loading_bdd_scenarios':
-            case 'loading_bdd_breakdown':
-            case 'loading_bdd_conversion':
-            case 'loading_outline_generation':
-            case 'loading':
-                return (
-                    <div className="flex flex-col items-center justify-center min-h-[calc(100vh-150px)]">
-                        <Loader text="A IA está trabalhando..." />
-                    </div>
+                return originalStory && (
+                    <ReviewGeneratedStory 
+                        story={originalStory} 
+                        onConfirm={handleReviewConfirm}
+                        onEdit={setOriginalStory}
+                    />
                 );
-            case 'workspace':
-                return <WorkspaceView
-                    planningMode={planningMode}
-                    originalStory={originalStory}
-                    setOriginalStory={(story) => setOriginalStory(story)}
-                    featureDescription={featureDescription}
-                    setFeatureDescription={setFeatureDescription}
-                    bddScenarios={bddScenarios}
-                    conversation={conversation}
-                    activePersonas={activePersonas}
-                    satisfiedPersonas={satisfiedPersonas}
-                    handleStartPlanning={handleStartPlanning}
-                    handleAnswerSubmit={handleAnswerSubmit}
-                    handleSkip={handleSkip}
-                    currentAnswer={currentAnswer}
-                    setCurrentAnswer={setCurrentAnswer}
-                    isAnswering={isAnswering}
-                    handleGetSuggestion={handleGetSuggestion}
-                    suggestedStory={suggestedStory}
-                    isSuggesting={isSuggesting}
-                    refinementPrompt={refinementPrompt}
-                    setRefinementPrompt={setRefinementPrompt}
-                    handleGenerateScenarios={handleGenerateScenarios}
-                    testScenarios={testScenarios}
-                    isGeneratingScenarios={isGeneratingScenarios}
-                    handleAnalyzeComplexity={handleAnalyzeComplexity}
-                    complexityAnalysis={complexityAnalysis}
-                    isAnalyzingComplexity={isAnalyzingComplexity}
-                    handleGeneratePrototype={handleGeneratePrototype}
-                    isGeneratingPrototype={isGeneratingPrototype}
-                    handleGenerateGherkin={handleGenerateGherkin}
-                    generatedSingleGherkin={generatedSingleGherkin}
-                    isGeneratingGherkin={isGeneratingGherkin}
-                    handleCompleteBddPlanning={handleCompleteBddPlanning}
-                    handleCopy={handleCopy}
-                    copiedTurnId={copiedTurnId}
-                    suggestionForReview={suggestionForReview}
-                    handleAcceptSuggestion={handleAcceptSuggestion}
-                    handleDiscardSuggestion={handleDiscardSuggestion}
-                    handleRefineSuggestionInReview={handleRefineSuggestionInReview}
-                    isRefining={isRefining}
-                />;
-            case 'story_selection':
-                return <StorySelectionScreen stories={splitStories} onSelectStory={handleSelectSplitStory} />;
+             case 'story_selection':
+                return (
+                    <StorySelectionScreen 
+                        stories={splitStories} 
+                        onSelectStory={handleSelectSplitStory} 
+                    />
+                );
+             case 'workspace':
+                return (
+                    <WorkspaceView
+                        planningMode={planningMode}
+                        originalStory={originalStory}
+                        featureDescription={featureDescription}
+                        bddScenarios={bddScenarios}
+                        conversation={conversation}
+                        conversationInsights={conversationInsights}
+                        activePersonas={activePersonas}
+                        satisfiedPersonas={satisfiedPersonas}
+                        suggestedStory={suggestedStory}
+                        isSuggesting={isSuggesting}
+                        refinementPrompt={refinementPrompt}
+                        isRefining={isRefining}
+                        testScenarios={testScenarios}
+                        isGeneratingScenarios={isGeneratingScenarios}
+                        complexityAnalysis={complexityAnalysis}
+                        isAnalyzingComplexity={isAnalyzingComplexity}
+                        isGeneratingPrototype={isGeneratingPrototype}
+                        isAnswering={isAnswering}
+                        currentAnswer={currentAnswer}
+                        generatedSingleGherkin={generatedSingleGherkin}
+                        isGeneratingGherkin={isGeneratingGherkin}
+                        suggestionForReview={suggestionForReview}
+                        setOriginalStory={setOriginalStory}
+                        setFeatureDescription={setFeatureDescription}
+                        handleStartPlanning={handleStartPlanning}
+                        handleAnswerSubmit={handleAnswerSubmit}
+                        handleSkip={handleSkip}
+                        setCurrentAnswer={setCurrentAnswer}
+                        handleGetSuggestion={handleGetSuggestion}
+                        setRefinementPrompt={setRefinementPrompt}
+                        handleGenerateScenarios={handleGenerateScenarios}
+                        handleAnalyzeComplexity={handleAnalyzeComplexity}
+                        handleGeneratePrototype={handleGeneratePrototype}
+                        handleGenerateGherkin={handleGenerateGherkin}
+                        handleCompleteBddPlanning={handleCompleteBddPlanning}
+                        handleCopy={handleCopy}
+                        copiedTurnId={copiedTurnId}
+                        handleAcceptSuggestion={handleAcceptSuggestion}
+                        handleDiscardSuggestion={handleDiscardSuggestion}
+                        handleRefineSuggestionInReview={handleRefineSuggestionInReview}
+                        userFlowDiagram={userFlowDiagram}
+                        isGeneratingDiagram={isGeneratingDiagram}
+                        handleGenerateDiagram={handleGenerateDiagram}
+                        onOpenExport={() => setIsExportModalOpen(true)}
+                    />
+                );
+            case 'loading_generation':
+                return <Loader text="Gerando história..." />;
+            case 'loading_transcription':
+                return <Loader text="Analisando transcrição..." />;
+            case 'loading_bdd_scenarios':
+                return <Loader text="Gerando cenários BDD..." />;
+            case 'loading_bdd_breakdown':
+                return <Loader text="Analisando e quebrando documento..." />;
+            case 'loading_bdd_conversion':
+                return <Loader text="Convertendo funcionalidade..." />;
+            case 'loading_outline_generation':
+                return <Loader text="Gerando template de Scenario Outline..." />;
+            case 'analyzing_complexity':
+                return <Loader text="Analisando complexidade..." />;
+            case 'loading':
             default:
-                return <div>Estado não implementado: {appState}</div>
+                return <Loader text="Carregando..." />;
         }
     };
 
     return (
-        <div className="bg-gray-900 text-gray-200 min-h-screen font-sans">
-            <Header onHomeClick={headerAction} showHomeButton={appState !== 'home'} homeButtonText={headerText} onBack={handleGoBack} showBack={navigationHistory.length > 1} />
-            <main className="container mx-auto p-4">
-                <Breadcrumbs 
-                    history={navigationHistory}
-                    onNavigate={handleBreadcrumbNavigate}
-                    translate={translateStateToFriendlyName}
+        <div className="min-h-screen bg-gray-900 text-gray-200 flex flex-col md:flex-row">
+            <HistorySidebar
+                sessions={sessions}
+                currentSessionId={currentSessionId}
+                onSelectSession={restoreSession}
+                onDeleteSession={handleDeleteSession}
+                onNewSession={handleRestart}
+            />
+            <div className="flex-grow flex flex-col h-screen overflow-hidden">
+                <Header 
+                    onHomeClick={headerAction} 
+                    showHomeButton={appState !== 'home'}
+                    homeButtonText={headerText}
+                    onBack={handleGoBack}
+                    showBack={navigationHistory.length > 1}
                 />
-                {renderContent()}
-            </main>
-
-            {isFeaturesModalOpen && <FeaturesModal onClose={() => setIsFeaturesModalOpen(false)} />}
-            {isModelStoryModalOpen && <ModelStoryModal initialModel={modelStory} onSave={handleSaveModelStory} onClose={() => setIsModelStoryModalOpen(false)} />}
-            {isPrototypeModelModalOpen && <PrototypeModelModal initialModel={prototypeModel} onSave={handleSavePrototypeModel} onClose={() => setIsPrototypeModelModalOpen(false)} />}
-            {confirmationAction && <ConfirmationModal action={confirmationAction} onClose={() => setConfirmationAction(null)} />}
+                <div className="flex-grow overflow-y-auto p-4">
+                    <div className="max-w-[1600px] mx-auto h-full">
+                        <Breadcrumbs 
+                            history={navigationHistory} 
+                            onNavigate={handleBreadcrumbNavigate} 
+                            translate={translateStateToFriendlyName}
+                        />
+                        {renderContent()}
+                    </div>
+                </div>
+            </div>
             
-            {originalStory && isOriginalStoryModalOpen && (
-                <OriginalStoryModal story={originalStory} onClose={() => setIsOriginalStoryModalOpen(false)} />
+            {isOriginalStoryModalOpen && originalStory && (
+                <OriginalStoryModal 
+                    story={originalStory} 
+                    onClose={() => setIsOriginalStoryModalOpen(false)} 
+                    onDownload={() => handleDownload(originalStory.description, 'historia.txt')}
+                />
             )}
-
-            {isFeatureDescriptionModalOpen && (
+            {isFeatureDescriptionModalOpen && featureDescription && (
                 <FeatureDescriptionModal description={featureDescription} onClose={() => setIsFeatureDescriptionModalOpen(false)} />
             )}
-            
-            {complexityAnalysis && <ComplexityAnalysisModal result={complexityAnalysis} onClose={() => setComplexityAnalysis(null)} onAcceptSplit={handleAcceptSplit} />}
-            
-            {suggestedPrototype && isPrototypeModalOpen && (
-                <PrototypeModal prototypeCode={suggestedPrototype} onClose={() => setIsPrototypeModalOpen(false)} title="Protótipo Visual da Funcionalidade" />
-            )}
-            
-            {poChecklistContent && isPoChecklistModalOpen && (
-                 <OriginalStoryModal 
-                    story={{ title: "Checklist de Pré-Homologação", description: poChecklistContent }} 
-                    onClose={() => setIsPoChecklistModalOpen(false)} 
-                    titleOverride="Checklist de Pré-Homologação" 
-                    onDownload={() => handleDownload(poChecklistContent, 'po-checklist.txt')}
-                 />
-            )}
-            
-            {stepDefContent && isStepDefModalOpen && (
-                <OriginalStoryModal 
-                    story={{ title: `Step Definitions (${selectedTechnology})`, description: stepDefContent }} 
-                    onClose={() => setIsStepDefModalOpen(false)}
-                    titleOverride={`Step Definitions (${selectedTechnology})`} 
-                    onDownload={() => handleDownload(stepDefContent, `steps.${getFileExtension(selectedTechnology)}`)}
-                />
-            )}
-            
             {isTechSelectionModalOpen && (
-                <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4">
-                     <div className="bg-gray-800 rounded-lg shadow-xl max-w-md w-full p-6 border border-gray-700 animate-fade-in-up">
+                <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4" onClick={() => setIsTechSelectionModalOpen(false)}>
+                    <div className="bg-gray-800 rounded-lg shadow-xl max-w-md w-full p-6 border border-gray-700 relative animate-fade-in-up" onClick={e => e.stopPropagation()}>
                         <h3 className="text-xl font-semibold text-purple-300 mb-4">Selecione a Tecnologia</h3>
-                        <select
-                            value={selectedTechnology}
-                            onChange={(e) => setSelectedTechnology(e.target.value)}
-                            className="w-full p-2 bg-gray-900 border border-gray-700 rounded-md focus:ring-2 focus:ring-purple-500 transition text-gray-300"
-                        >
-                            <option>JavaScript - Cypress</option>
-                            <option>Python - Behave</option>
-                            <option>Java - Cucumber</option>
-                            <option>PHP</option>
-                            <option>C#</option>
-                        </select>
-                        <div className="flex justify-end gap-3 mt-6">
-                            <button onClick={() => setIsTechSelectionModalOpen(false)} className="bg-gray-600 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded transition">Cancelar</button>
-                            <button onClick={() => {
-                                if (!bddScenarios.every(s => s.completed)) return;
-                                const fullFeature = `Funcionalidade: ${featureDescription}\n\n` + bddScenarios.map(s => s.gherkin).join('\n\n');
-                                handleGenerateStepDefs(fullFeature);
-                            }} className="bg-purple-600 hover:bg-purple-700 text-white font-bold py-2 px-4 rounded transition">Gerar</button>
+                        <div className="space-y-2">
+                            {['JavaScript - Cypress', 'Python - Behave', 'Java - Cucumber', 'PHP', 'C#'].map(tech => (
+                                <button
+                                    key={tech}
+                                    onClick={() => { setSelectedTechnology(tech); handleGenerateStepDefs(`Funcionalidade: ${featureDescription}\n\n` + bddScenarios.map(s => s.gherkin).join('\n\n')); }}
+                                    className="w-full text-left p-3 rounded-md hover:bg-gray-700 transition-colors text-gray-300"
+                                >
+                                    {tech}
+                                </button>
+                            ))}
                         </div>
-                     </div>
+                    </div>
                 </div>
             )}
-
-            <DataTableModal
-                title="Inserir Dados Tabulares"
+            {isPoChecklistModalOpen && poChecklistContent && (
+                 <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4" onClick={() => setIsPoChecklistModalOpen(false)}>
+                    <div className="bg-gray-800 rounded-lg shadow-xl max-w-3xl w-full h-[80vh] flex flex-col p-6 border border-gray-700 relative animate-fade-in-up" onClick={e => e.stopPropagation()}>
+                         <button onClick={() => setIsPoChecklistModalOpen(false)} className="absolute top-4 right-4 text-gray-400 hover:text-white p-1 rounded-full hover:bg-gray-700 z-10"><XIcon className="w-6 h-6" /></button>
+                        <h3 className="text-xl font-semibold text-purple-300 mb-4">Checklist de Pré-Homologação (PO)</h3>
+                        <div className="flex-grow overflow-auto bg-gray-900/50 p-4 rounded-md border border-gray-700">
+                             <pre className="text-sm text-gray-300 whitespace-pre-wrap font-sans">{poChecklistContent}</pre>
+                        </div>
+                        <div className="flex justify-end gap-3 mt-4">
+                            <button onClick={() => handleDownload(poChecklistContent, 'checklist_po.txt')} className="flex items-center gap-2 bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded transition">
+                                <DownloadIcon className="w-5 h-5" />
+                                Baixar Checklist
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+             {isStepDefModalOpen && stepDefContent && (
+                 <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4" onClick={() => setIsStepDefModalOpen(false)}>
+                    <div className="bg-gray-800 rounded-lg shadow-xl max-w-4xl w-full h-[85vh] flex flex-col p-6 border border-gray-700 relative animate-fade-in-up" onClick={e => e.stopPropagation()}>
+                         <button onClick={() => setIsStepDefModalOpen(false)} className="absolute top-4 right-4 text-gray-400 hover:text-white p-1 rounded-full hover:bg-gray-700 z-10"><XIcon className="w-6 h-6" /></button>
+                        <h3 className="text-xl font-semibold text-purple-300 mb-2">Step Definitions ({selectedTechnology})</h3>
+                        <div className="flex-grow overflow-auto bg-gray-900/50 p-4 rounded-md border border-gray-700">
+                             <pre className="text-sm text-gray-300 whitespace-pre-wrap font-mono">{stepDefContent}</pre>
+                        </div>
+                        <div className="flex justify-end gap-3 mt-4">
+                            <button onClick={() => handleDownload(stepDefContent, `steps.${getFileExtension(selectedTechnology)}`)} className="flex items-center gap-2 bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded transition">
+                                <DownloadIcon className="w-5 h-5" />
+                                Baixar Código
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+            {isPrototypeModalOpen && suggestedPrototype && (
+                <PrototypeModal 
+                    prototypeCode={suggestedPrototype} 
+                    onClose={() => setIsPrototypeModalOpen(false)}
+                    title={planningMode === 'story' ? "Protótipo da História" : "Protótipo da Feature"}
+                />
+            )}
+            {isExportModalOpen && (
+                <ExportModal 
+                    isOpen={isExportModalOpen}
+                    onClose={() => setIsExportModalOpen(false)}
+                    data={{
+                        story: planningMode === 'story' ? (suggestedStory ? { ...originalStory!, description: suggestedStory } : originalStory) : null,
+                        featureDescription,
+                        bddScenarios,
+                        poChecklist: poChecklistContent,
+                        technicalNotes: stepDefContent,
+                        prototypeCode: suggestedPrototype,
+                        diagramCode: userFlowDiagram,
+                    }}
+                />
+            )}
+             {isFeaturesModalOpen && <FeaturesModal onClose={() => setIsFeaturesModalOpen(false)} />}
+             {isModelStoryModalOpen && <ModelStoryModal initialModel={modelStory} onSave={handleSaveModelStory} onClose={() => setIsModelStoryModalOpen(false)} />}
+             {isPrototypeModelModalOpen && <PrototypeModelModal initialModel={prototypeModel} onSave={handleSavePrototypeModel} onClose={() => setIsPrototypeModelModalOpen(false)} />}
+             {complexityAnalysis && <ComplexityAnalysisModal result={complexityAnalysis} onClose={() => setComplexityAnalysis(null)} onAcceptSplit={handleAcceptSplit} />}
+             <ConfirmationModal action={confirmationAction} onClose={() => setConfirmationAction(null)} />
+             <DataTableModal
+                title="Inserir Tabela de Dados"
                 columns={dataTableColumns}
-                isOpen={isDataTableModalOpen}
-                onClose={() => setIsDataTableModalOpen(false)}
+                isOpen={isDataTableModalOpen || isExtractingColumns}
+                onClose={() => { setIsDataTableModalOpen(false); setIsExtractingColumns(false); setCursorPositionForTable(null); }}
                 onConfirm={(tableString) => {
-                    setCurrentAnswer(prev => prev + tableString);
+                    if (tableTarget === 'answer') {
+                        setCurrentAnswer(prev => prev + tableString);
+                    } else if (tableTarget === 'editor' && editingOutline && cursorPositionForTable !== null) {
+                        const currentText = editingOutline.template;
+                        const newText = currentText.slice(0, cursorPositionForTable) + tableString + currentText.slice(cursorPositionForTable);
+                        setEditingOutline({ ...editingOutline, template: newText });
+                    }
+                    setCursorPositionForTable(null);
                 }}
-            />
+             />
+             {isExtractingColumns && (
+                 <div className="fixed bottom-4 right-4 z-50 bg-gray-800 p-4 rounded-lg shadow-xl border border-purple-500 animate-pulse">
+                     <p className="text-purple-300 font-bold">A IA está sugerindo uma tabela...</p>
+                 </div>
+             )}
+             {!isExtractingColumns && dataTableColumns.length > 0 && !isDataTableModalOpen && appState === 'workspace' && (
+                 <div className="fixed bottom-24 right-8 z-40">
+                     <button
+                        onClick={() => { setTableTarget('answer'); setIsDataTableModalOpen(true); }}
+                        className="bg-cyan-600 hover:bg-cyan-700 text-white font-bold p-4 rounded-full shadow-lg flex items-center gap-2 transition-transform hover:scale-110 animate-bounce"
+                        title="Inserir Tabela Sugerida"
+                     >
+                         <TableIcon className="w-6 h-6" />
+                         <span className="hidden md:inline">Inserir Tabela</span>
+                     </button>
+                 </div>
+             )}
         </div>
     );
 };
