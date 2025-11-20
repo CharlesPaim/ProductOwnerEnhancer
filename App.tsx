@@ -136,7 +136,7 @@ const FeaturesModal = ({ onClose }: { onClose: () => void; }) => (
                             <li><span className="font-semibold text-gray-300">Sessão de Homologação:</span> Extrai feedback e pontos de ação.</li>
                         </ul>
                     </li>
-                    <li><span className="font-semibold">Criar Feature BDD:</span> A partir de uma descrição, a IA sugere cenários. Você pode então revisar, editar, adicionar, remover e detalhar cada cenário (incluindo a criação de 'Scenario Outlines' com tabelas de exemplos) para gerar um arquivo .feature completo.</li>
+                    <li><span className="font-semibold">Criar Feature BDD:</span> A partir de uma descrição, a IA sugere cenários. Utilize o <strong>editor com realce de sintaxe (Gherkin)</strong> para detalhar cada cenário, incluindo suporte a tabelas de exemplos.</li>
                     <li><span className="font-semibold">Converter Documento para BDD:</span> Cole um documento de requisitos tradicional para que a IA o analise, sugira uma quebra em features menores e o transforme em um arquivo .feature.</li>
                 </ul>
             </div>
@@ -179,7 +179,7 @@ const FeaturesModal = ({ onClose }: { onClose: () => void; }) => (
                 <h4 className="font-bold text-cyan-300">Utilitários e Exportação</h4>
                 <ul className="list-disc list-inside space-y-1 mt-1">
                     <li><span className="font-semibold">Histórico de Sessão:</span> Salva automaticamente seu progresso. Retome sessões anteriores através da barra lateral.</li>
-                    <li><span className="font-semibold">Exportação Profissional:</span> Exporte sua história refinada para Jira, Markdown ou gere um relatório HTML completo com diagramas e protótipos inclusos.</li>
+                    <li><span className="font-semibold">Exportação Profissional:</span> Exporte sua história refinada para o <strong>Jira (Wiki Markup)</strong>, <strong>Markdown</strong> (Git) ou gere um <strong>Relatório HTML</strong> completo com diagramas interativos e protótipos.</li>
                     <li><span className="font-semibold">Acesso Rápido:</span> Visualize a história original, o cenário atual ou a feature BDD em um modal a qualquer momento.</li>
                     <li><span className="font-semibold">Copiar para a Área de Transferência:</span> Copie facilmente a história original, perguntas, sugestões, testes e protótipos.</li>
                 </ul>
@@ -778,7 +778,7 @@ const ModelStoryModal = ({ initialModel, onSave, onClose }: { initialModel: stri
                     <TemplateIcon className="w-8 h-8 text-cyan-300" />
                     <h3 className="text-xl font-semibold text-purple-300">Definir Modelo de História Global</h3>
                 </div>
-                <p className="text-gray-400 mb-4 text-sm">Cole uma história de usuário aqui. A IA usará sua estrutura e formatação como modelo para todas as novas histórias geradas nesta sessão.</p>
+                <p className="text-gray-400 mb-4 text-sm">Cole uma história de usuário aqui. A IA usará sua estrutura e formatação como modelo para todas as novas histórias geradas na sessão.</p>
                 <textarea
                     value={currentModel}
                     onChange={(e) => setCurrentModel(e.target.value)}

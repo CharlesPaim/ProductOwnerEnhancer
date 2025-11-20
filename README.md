@@ -1,3 +1,4 @@
+
 # Aprimorador de Histórias de Usuário com IA
 
 Uma aplicação com IA para ajudar Product Owners a melhorar a qualidade das histórias de usuário através de uma sessão de planejamento simulada com personas de IA.
@@ -12,7 +13,7 @@ Uma aplicação com IA para ajudar Product Owners a melhorar a qualidade das his
   - **Levantamento de Requisitos:** Gera novas histórias a partir da discussão.
   - **Reunião de Planejamento:** Valida uma história existente contra o que foi discutido.
   - **Sessão de Homologação:** Extrai feedback e pontos de ação.
-- **Criar Feature BDD:** A partir de uma descrição, a IA sugere cenários. Você pode então revisar, editar, adicionar, remover e detalhar cada cenário (incluindo a criação de 'Scenario Outlines' com tabelas de exemplos) para gerar um arquivo .feature completo.
+- **Criar Feature BDD:** A partir de uma descrição, a IA sugere cenários. Utilize o **editor com realce de sintaxe (Gherkin)** para detalhar cada cenário, incluindo suporte a tabelas de exemplos.
 - **Converter Documento para BDD:** Cole um documento de requisitos tradicional para que a IA o analise, sugira uma quebra em features menores e o transforme em um arquivo .feature.
 
 ### Configuração Global (na Tela Inicial)
@@ -23,7 +24,8 @@ Uma aplicação com IA para ajudar Product Owners a melhorar a qualidade das his
 ### Sessão de Planejamento Simulada
 
 - **Configuração Flexível:** Selecione as personas (Dev, QA, Arquiteto, UX, DevOps) e arraste para definir a ordem das perguntas.
-- **Perguntas Contextuais:** A IA faz perguntas sequenciais com base nas personas e na conversa.
+- **Perguntas Contextuais e Coach Mode:** A IA faz perguntas sequenciais e fornece insights educacionais para explicar a importância de cada questão.
+- **Insights em Tempo Real:** Acompanhe um resumo dinâmico dos pontos de atenção e decisões tomadas durante a conversa.
 - **Inserção de Tabelas:** Quando a IA pede dados tabulares, um botão aparece para abrir um modal de edição de tabelas, inserindo os dados formatados na sua resposta.
 - **Análise de Complexidade (Anti-Épico):** Identifique histórias muito grandes e receba sugestões para quebrá-las. Refine cada nova história individualmente.
 - **Planejamento BDD em Grupo:** Selecione múltiplos cenários para discuti-los em uma única sessão de planejamento, otimizando o tempo.
@@ -40,11 +42,14 @@ Uma aplicação com IA para ajudar Product Owners a melhorar a qualidade das his
 - **Prototipagem Visual com IA:** Crie um protótipo visual (HTML/Tailwind CSS) a partir da história de usuário ou de um arquivo .feature completo para acelerar o alinhamento. O protótipo é exibido em um modal com visualização ao vivo e opção de salvar como .html.
 - **Checklist de Pré-Homologação (BDD):** Gere um roteiro de teste em linguagem natural para o PO validar a entrega a partir do arquivo .feature.
 - **Definições de Steps (BDD):** Gere o código completo das Step Definitions (JS, Python, Java, PHP, C#) para acelerar a automação de testes.
+- **Fluxo Visual (Diagrama):** Gere automaticamente um diagrama de fluxo do usuário (Mermaid.js) baseado na história para identificar falhas lógicas.
 
-### Utilidades
+### Utilidades e Exportação
 
+- **Histórico de Sessão:** Salva automaticamente seu progresso. Retome sessões anteriores através da barra lateral.
+- **Exportação Profissional:** Exporte sua história refinada para o **Jira (Wiki Markup)**, **Markdown** (Git) ou gere um **Relatório HTML** completo com diagramas interativos e protótipos.
 - **Acesso Rápido:** Visualize a história original, o cenário atual ou a feature BDD em um modal a qualquer momento.
-- **Exportação de Artefatos:** Copie facilmente qualquer texto gerado ou faça o download de artefatos como protótipos (`.html`), checklists (`.txt`) e definições de steps (código-fonte).
+- **Copiar para a Área de Transferência:** Copie facilmente a história original, perguntas, sugestões, testes e protótipos.
 - **Navegação Inteligente:** Reinicie o processo ou volte para a seleção de histórias quebradas com um botão que se adapta ao contexto.
 
 ## Informações Técnicas
