@@ -1,7 +1,7 @@
 
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { Persona, ParsedStory, ConversationTurn, ComplexityAnalysisResult } from '../types';
-import { personaDetails, UserIcon, SparklesIcon, ClipboardIcon, ClipboardCheckIcon, ClipboardListIcon, ScaleIcon, CodeIcon, DocumentTextIcon, CheckCircleIcon, InformationCircleIcon, SwitchHorizontalIcon, XIcon, LightBulbIcon, FlowIcon, ShareIcon, BookOpenIcon } from './icons';
+import { personaDetails, UserIcon, SparklesIcon, ClipboardIcon, ClipboardCheckIcon, ClipboardListIcon, ScaleIcon, CodeIcon, DocumentTextIcon, CheckCircleIcon, InformationCircleIcon, SwitchHorizontalIcon, XIcon, LightBulbIcon, FlowIcon, ShareIcon, BookOpenIcon, ArrowLeftIcon } from './icons';
 import WizardStepper from './WizardStepper';
 import DiagramViewer from './DiagramViewer';
 
@@ -269,8 +269,11 @@ const SuggestionReviewer = ({ suggestion, currentStoryText, onAccept, onDiscard,
     );
 };
 
+type AIAssistantTabProps = WorkspaceViewProps & {
+    onNavigateToTools: () => void;
+};
 
-const AIAssistantTab = (props: WorkspaceViewProps) => {
+const AIAssistantTab = (props: AIAssistantTabProps) => {
     const {
         conversation,
         handleStartPlanning,
@@ -296,7 +299,8 @@ const AIAssistantTab = (props: WorkspaceViewProps) => {
         originalStory,
         suggestedStory,
         activePersonas,
-        satisfiedPersonas
+        satisfiedPersonas,
+        onNavigateToTools
     } = props;
     
     const conversationEndRef = useRef<HTMLDivElement>(null);
@@ -453,13 +457,22 @@ const AIAssistantTab = (props: WorkspaceViewProps) => {
                     <p className="text-gray-400 text-sm mb-6">Você esclareceu todos os pontos com a equipe.</p>
                     
                     {planningMode === 'story' ? (
-                        <button
-                            onClick={handleGetSuggestion}
-                            disabled={isSuggesting}
-                            className="bg-gradient-to-r from-purple-600 to-cyan-600 hover:from-purple-700 hover:to-cyan-700 text-white font-bold py-3 px-8 rounded-full shadow-lg transform transition hover:scale-105 disabled:opacity-50 w-full md:w-auto"
-                        >
-                            {isSuggesting ? 'Gerando Nova Versão...' : 'Gerar Nova Versão da História'}
-                        </button>
+                        <div className="flex flex-col gap-3">
+                            <button
+                                onClick={handleGetSuggestion}
+                                disabled={isSuggesting}
+                                className="bg-gradient-to-r from-purple-600 to-cyan-600 hover:from-purple-700 hover:to-cyan-700 text-white font-bold py-3 px-8 rounded-full shadow-lg transform transition hover:scale-105 disabled:opacity-50 w-full"
+                            >
+                                {isSuggesting ? 'Gerando Nova Versão...' : 'Gerar Nova Versão da História'}
+                            </button>
+                            <button 
+                                onClick={onNavigateToTools}
+                                className="bg-gray-700 hover:bg-gray-600 text-white font-bold py-3 px-8 rounded-full shadow-lg transform transition hover:scale-105 w-full border border-gray-600 flex items-center justify-center gap-2"
+                            >
+                                <ScaleIcon className="w-5 h-5 text-yellow-400" />
+                                Ir para Validação (Complexidade & Testes)
+                            </button>
+                        </div>
                     ) : (
                         <div className="flex flex-col gap-3 justify-center">
                              {generatedSingleGherkin ? (
@@ -528,13 +541,32 @@ const WorkspaceView: React.FC<WorkspaceViewProps> = (props) => {
         ? (suggestedStory || originalStory?.description || '') 
         : featureDescription;
     
-    const title = planningMode === 'story' ? (originalStory?.title || 'Sem Título') : 'Planejamento BDD';
+    // Logic to determine active step in wizard
+    const getActiveStepName = () => {
+        if (activeTab === 'story') {
+            return planningMode === 'story' ? 'História' : 'Feature';
+        }
+        if (activeTab === 'assistant') {
+            return planningMode === 'story' ? 'Perguntas' : 'Cenários';
+        }
+        if (activeTab === 'tools') {
+            if (planningMode === 'story') {
+                // Se já analisou a complexidade, consideramos que está na fase de testes ou final
+                return complexityAnalysis ? 'Testes' : 'Complexidade';
+            } else {
+                return 'Steps'; // Em BDD, 'Tools' mapeia para Steps/Gherkin final
+            }
+        }
+        return '';
+    };
+
+    const activeStepName = getActiveStepName();
 
     return (
         <div className="flex flex-col h-[calc(100vh-140px)] max-h-[calc(100vh-140px)]">
             <div className="flex justify-between items-center mb-6">
                 <div className="flex-grow">
-                    <WizardStepper mode={planningMode} activeStepName={activeTab === 'story' ? (planningMode === 'story' ? 'História' : 'Feature') : activeTab === 'assistant' ? (planningMode === 'story' ? 'Perguntas' : 'Cenários') : 'Testes'} />
+                    <WizardStepper mode={planningMode} activeStepName={activeStepName} />
                 </div>
                 {onOpenExport && (
                     <button
@@ -584,17 +616,12 @@ const WorkspaceView: React.FC<WorkspaceViewProps> = (props) => {
                             value={currentText}
                             onChange={(e) => {
                                 if (planningMode === 'story' && originalStory) {
-                                    // If editing suggested story, we treat it as updating the suggestion essentially?
-                                    // But props don't allow updating suggestion directly easily here without callback.
-                                    // Assuming user edits original if no suggestion, or we need a way to update.
-                                    // For simplicity, if suggestedStory exists, we can't edit it here directly in this view without a setter.
-                                    // Let's assume we edit original description for now or feature description.
                                     if (!suggestedStory) setOriginalStory({ ...originalStory, description: e.target.value });
                                 } else {
                                     setFeatureDescription(e.target.value);
                                 }
                             }}
-                            readOnly={!!suggestedStory && planningMode === 'story'} // Read only if it's a suggestion, use reviewer to edit
+                            readOnly={!!suggestedStory && planningMode === 'story'} 
                             className="w-full h-[calc(100%-80px)] bg-gray-900 border border-gray-700 rounded p-3 text-gray-300 text-sm resize-none focus:ring-1 focus:ring-purple-500 outline-none"
                         />
                     </div>
@@ -622,9 +649,7 @@ const WorkspaceView: React.FC<WorkspaceViewProps> = (props) => {
                         <button onClick={() => setActiveTab('tools')} className={`flex-1 py-3 text-sm font-medium ${activeTab === 'tools' ? 'text-purple-300 border-b-2 border-purple-500' : 'text-gray-400'}`}>Ferramentas</button>
                     </div>
 
-                    {/* Desktop Tabs (only for Tools vs Assistant if needed, but let's keep them together or split) */}
-                    {/* Let's use a unified view for desktop, but toggle between Chat and Tools if screen real estate is small, or side-by-side? */}
-                    {/* Given the design, let's stick to tabs for the right panel content: Chat vs Tools */}
+                    {/* Desktop Tabs */}
                     <div className="hidden lg:flex border-b border-gray-700 bg-gray-800 rounded-t-lg mx-1">
                         <button onClick={() => setActiveTab('assistant')} className={`px-6 py-3 text-sm font-medium flex items-center gap-2 ${activeTab === 'assistant' ? 'text-cyan-300 bg-gray-900 border-t-2 border-cyan-500' : 'text-gray-400 hover:text-white hover:bg-gray-700'}`}>
                             <SparklesIcon className="w-4 h-4" />
@@ -638,42 +663,18 @@ const WorkspaceView: React.FC<WorkspaceViewProps> = (props) => {
 
                     <div className="flex-grow bg-gray-800 lg:rounded-b-lg lg:mx-1 shadow-xl border border-gray-700 border-t-0 p-4 overflow-hidden flex flex-col">
                         {activeTab === 'assistant' && (
-                            <AIAssistantTab {...props} />
+                            <AIAssistantTab 
+                                {...props} 
+                                onNavigateToTools={() => setActiveTab('tools')} 
+                            />
                         )}
                         
                         {activeTab === 'tools' && (
                              <div className="h-full overflow-y-auto pr-2 space-y-6">
                                 {/* Tools Grid */}
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                    {/* 1. Test Scenarios */}
-                                    <div className="bg-gray-900/50 p-4 rounded-lg border border-gray-700">
-                                        <div className="flex justify-between items-center mb-4">
-                                            <h4 className="font-bold text-green-400 flex items-center gap-2">
-                                                <ClipboardListIcon className="w-5 h-5" />
-                                                Cenários de Teste
-                                            </h4>
-                                            {testScenarios && (
-                                                <button onClick={() => handleCopy(testScenarios)} className="text-gray-400 hover:text-white"><ClipboardIcon className="w-4 h-4" /></button>
-                                            )}
-                                        </div>
-                                        {testScenarios ? (
-                                            <pre className="text-xs text-gray-300 whitespace-pre-wrap max-h-60 overflow-y-auto custom-scrollbar">{testScenarios}</pre>
-                                        ) : (
-                                            <div className="text-center py-8 text-gray-500 text-sm">
-                                                Nenhum cenário gerado ainda.
-                                            </div>
-                                        )}
-                                        <button 
-                                            onClick={handleGenerateScenarios} 
-                                            disabled={isGeneratingScenarios}
-                                            className="w-full mt-4 bg-gray-700 hover:bg-gray-600 text-white py-2 rounded text-sm font-medium transition disabled:opacity-50"
-                                        >
-                                            {isGeneratingScenarios ? 'Gerando...' : 'Gerar Cenários de QA'}
-                                        </button>
-                                    </div>
-
-                                    {/* 2. Complexity Analysis (Only for Story Mode) */}
-                                    {planningMode === 'story' && (
+                                     {/* Complexity Analysis (First for Story Mode flow) */}
+                                     {planningMode === 'story' && (
                                         <div className="bg-gray-900/50 p-4 rounded-lg border border-gray-700">
                                             <div className="flex justify-between items-center mb-4">
                                                 <h4 className="font-bold text-yellow-400 flex items-center gap-2">
@@ -702,7 +703,34 @@ const WorkspaceView: React.FC<WorkspaceViewProps> = (props) => {
                                         </div>
                                     )}
 
-                                    {/* 3. Visual Prototype */}
+                                    {/* Test Scenarios */}
+                                    <div className="bg-gray-900/50 p-4 rounded-lg border border-gray-700">
+                                        <div className="flex justify-between items-center mb-4">
+                                            <h4 className="font-bold text-green-400 flex items-center gap-2">
+                                                <ClipboardListIcon className="w-5 h-5" />
+                                                Cenários de Teste
+                                            </h4>
+                                            {testScenarios && (
+                                                <button onClick={() => handleCopy(testScenarios)} className="text-gray-400 hover:text-white"><ClipboardIcon className="w-4 h-4" /></button>
+                                            )}
+                                        </div>
+                                        {testScenarios ? (
+                                            <pre className="text-xs text-gray-300 whitespace-pre-wrap max-h-60 overflow-y-auto custom-scrollbar">{testScenarios}</pre>
+                                        ) : (
+                                            <div className="text-center py-8 text-gray-500 text-sm">
+                                                Nenhum cenário gerado ainda.
+                                            </div>
+                                        )}
+                                        <button 
+                                            onClick={handleGenerateScenarios} 
+                                            disabled={isGeneratingScenarios}
+                                            className="w-full mt-4 bg-gray-700 hover:bg-gray-600 text-white py-2 rounded text-sm font-medium transition disabled:opacity-50"
+                                        >
+                                            {isGeneratingScenarios ? 'Gerando...' : 'Gerar Cenários de QA'}
+                                        </button>
+                                    </div>
+
+                                    {/* Visual Prototype */}
                                     <div className="bg-gray-900/50 p-4 rounded-lg border border-gray-700">
                                         <div className="flex justify-between items-center mb-4">
                                             <h4 className="font-bold text-cyan-400 flex items-center gap-2">
@@ -722,7 +750,7 @@ const WorkspaceView: React.FC<WorkspaceViewProps> = (props) => {
                                         </button>
                                     </div>
 
-                                    {/* 4. User Flow Diagram */}
+                                    {/* User Flow Diagram */}
                                      {planningMode === 'story' && (
                                         <div className="bg-gray-900/50 p-4 rounded-lg border border-gray-700">
                                             <div className="flex justify-between items-center mb-4">
