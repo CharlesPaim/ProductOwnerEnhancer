@@ -1,7 +1,8 @@
 
+
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { Persona, ParsedStory, ConversationTurn, ComplexityAnalysisResult } from '../types';
-import { personaDetails, UserIcon, SparklesIcon, ClipboardIcon, ClipboardCheckIcon, ClipboardListIcon, ScaleIcon, CodeIcon, DocumentTextIcon, CheckCircleIcon, InformationCircleIcon, SwitchHorizontalIcon, XIcon, LightBulbIcon, FlowIcon, ShareIcon, BookOpenIcon, ArrowLeftIcon } from './icons';
+import { personaDetails, UserIcon, SparklesIcon, ClipboardIcon, ClipboardCheckIcon, ClipboardListIcon, ScaleIcon, CodeIcon, DocumentTextIcon, CheckCircleIcon, InformationCircleIcon, SwitchHorizontalIcon, XIcon, LightBulbIcon, FlowIcon, ShareIcon, BookOpenIcon, ArrowLeftIcon, ArrowsExpandIcon, StopIcon } from './icons';
 import WizardStepper from './WizardStepper';
 import DiagramViewer from './DiagramViewer';
 
@@ -36,6 +37,7 @@ type WorkspaceViewProps = {
     handleStartPlanning: (personas: Persona[]) => void;
     handleAnswerSubmit: () => void;
     handleSkip: () => void;
+    handleManualFinish: () => void; // Novo prop
     setCurrentAnswer: (answer: string) => void;
     handleGetSuggestion: () => void;
     setRefinementPrompt: (prompt: string) => void;
@@ -116,6 +118,28 @@ const DiffModal = ({ oldText, newText, onClose }: { oldText: string, newText: st
                             );
                         })}
                     </pre>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+const InsightsModal = ({ insights, onClose }: { insights: string, onClose: () => void }) => {
+    return (
+        <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4" onClick={onClose}>
+            <div className="bg-gray-800 rounded-lg shadow-xl max-w-3xl w-full max-h-[80vh] flex flex-col p-6 border border-gray-700 relative animate-fade-in-up" onClick={e => e.stopPropagation()}>
+                <button onClick={onClose} className="absolute top-4 right-4 text-gray-400 hover:text-white p-1 rounded-full hover:bg-gray-700 z-20"><XIcon className="w-6 h-6" /></button>
+                <h3 className="text-xl font-semibold text-yellow-400 mb-4 flex items-center gap-2">
+                    <LightBulbIcon className="w-6 h-6" />
+                    Pontos de Atenção & Insights
+                </h3>
+                <div className="flex-grow overflow-auto bg-gray-900/50 p-6 rounded-md border border-gray-700">
+                    <div className="prose prose-invert max-w-none text-sm text-gray-300 whitespace-pre-wrap">
+                        {insights}
+                    </div>
+                </div>
+                <div className="mt-4 flex justify-end">
+                    <button onClick={onClose} className="bg-gray-700 hover:bg-gray-600 text-white font-bold py-2 px-4 rounded transition">Fechar</button>
                 </div>
             </div>
         </div>
@@ -279,6 +303,7 @@ const AIAssistantTab = (props: AIAssistantTabProps) => {
         handleStartPlanning,
         handleAnswerSubmit,
         handleSkip,
+        handleManualFinish,
         currentAnswer,
         setCurrentAnswer,
         isAnswering,
@@ -432,20 +457,30 @@ const AIAssistantTab = (props: AIAssistantTabProps) => {
                             }
                         }}
                     />
-                    <div className="flex justify-end gap-3 mt-3">
-                        <button 
-                            onClick={handleSkip}
-                            className="px-4 py-2 text-gray-400 hover:text-white text-sm font-medium transition"
+                    <div className="flex justify-between items-center mt-3">
+                         <button 
+                            onClick={handleManualFinish}
+                            className="text-gray-400 hover:text-white text-xs flex items-center gap-1 hover:bg-gray-700/50 p-2 rounded transition"
+                            title="Encerrar a sessão de perguntas manualmente e avançar"
                         >
-                            Pular / Não sei
+                            <StopIcon className="w-4 h-4" />
+                            Encerrar Refinamento
                         </button>
-                        <button 
-                            onClick={handleAnswerSubmit}
-                            disabled={!currentAnswer.trim()}
-                            className="bg-cyan-600 hover:bg-cyan-700 text-white font-bold py-2 px-6 rounded-md shadow-lg transform transition hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
-                        >
-                            Enviar Resposta
-                        </button>
+                        <div className="flex gap-3">
+                            <button 
+                                onClick={handleSkip}
+                                className="px-4 py-2 text-gray-400 hover:text-white text-sm font-medium transition"
+                            >
+                                Pular / Não sei
+                            </button>
+                            <button 
+                                onClick={handleAnswerSubmit}
+                                disabled={!currentAnswer.trim()}
+                                className="bg-cyan-600 hover:bg-cyan-700 text-white font-bold py-2 px-6 rounded-md shadow-lg transform transition hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
+                            >
+                                Enviar Resposta
+                            </button>
+                        </div>
                     </div>
                 </div>
             )}
@@ -535,6 +570,7 @@ const WorkspaceView: React.FC<WorkspaceViewProps> = (props) => {
 
     const [activeTab, setActiveTab] = useState<'story' | 'assistant' | 'tools'>('assistant');
     const [showDiff, setShowDiff] = useState(false);
+    const [isInsightsModalOpen, setIsInsightsModalOpen] = useState(false);
 
     // Determines what text to show in the story/feature panel
     const currentText = planningMode === 'story' 
@@ -628,12 +664,19 @@ const WorkspaceView: React.FC<WorkspaceViewProps> = (props) => {
                     
                     {/* Conversation Insights Summary (Mini) */}
                     {conversationInsights && (
-                        <div className="p-4 border-t border-gray-700 bg-yellow-900/10">
+                        <div className="p-4 border-t border-gray-700 bg-yellow-900/10 relative group">
+                            <button 
+                                onClick={() => setIsInsightsModalOpen(true)}
+                                className="absolute top-2 right-2 p-1 text-gray-400 hover:text-white rounded-full hover:bg-yellow-900/40 transition"
+                                title="Expandir Insights"
+                            >
+                                <ArrowsExpandIcon className="w-4 h-4" />
+                            </button>
                             <h4 className="text-xs font-bold text-yellow-500 uppercase mb-2 flex items-center gap-1">
                                 <LightBulbIcon className="w-4 h-4" />
                                 Pontos de Atenção
                             </h4>
-                            <div className="text-xs text-gray-400 max-h-32 overflow-y-auto whitespace-pre-wrap">
+                            <div className="text-xs text-gray-400 max-h-32 overflow-y-auto whitespace-pre-wrap cursor-pointer" onClick={() => setIsInsightsModalOpen(true)}>
                                 {conversationInsights}
                             </div>
                         </div>
@@ -787,6 +830,12 @@ const WorkspaceView: React.FC<WorkspaceViewProps> = (props) => {
                     oldText={originalStory.description} 
                     newText={suggestedStory} 
                     onClose={() => setShowDiff(false)} 
+                />
+            )}
+            {isInsightsModalOpen && conversationInsights && (
+                <InsightsModal 
+                    insights={conversationInsights} 
+                    onClose={() => setIsInsightsModalOpen(false)} 
                 />
             )}
         </div>
